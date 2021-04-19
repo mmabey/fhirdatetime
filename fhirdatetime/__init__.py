@@ -18,15 +18,15 @@ When comparing objects, only the values that are populated for *both*
 objects are considered. Consider the following examples in which only the
 years are compared:
 
->>> DateTime(2021) == DateTime(2021, 3, 45)
+>>> DateTime(2021) == DateTime(2021, 3, 15)
 True
->>> DateTime(2021) == datetime(2021, 3, 45, 23, 56)
+>>> DateTime(2021) == datetime(2021, 3, 15, 23, 56)
 True
->>> DateTime(2021) == date(2021, 3, 45)
+>>> DateTime(2021) == date(2021, 3, 15)
 True
->>> DateTime(2021) < DateTime(2021, 3, 45)
+>>> DateTime(2021) < DateTime(2021, 3, 15)
 False
->>> DateTime(2021) > DateTime(2021, 3, 45)
+>>> DateTime(2021) > DateTime(2021, 3, 15)
 False
 """
 
@@ -135,27 +135,6 @@ class DateTime(datetime):
         self._fold = fold
         return self
 
-    @staticmethod
-    def from_native(other: Union[datetime, date]):
-        """Create instance from standard lib date or datetime obj."""
-        if isinstance(other, datetime):
-            return DateTime(
-                other.year,
-                other.month,
-                other.day,
-                other.hour,
-                other.minute,
-                other.second,
-                other.microsecond,
-                other.tzinfo,
-                fold=other.fold,
-            )
-        elif isinstance(other, date):
-            return DateTime(other.year, other.month, other.day)
-        raise TypeError(
-            f"Can only create DateTime from date and datetime types, got {type(other)}"
-        )
-
     # Read-only field accessors - The datetime versions of these don't work 🤷
     @property
     def year(self):
@@ -260,6 +239,27 @@ class DateTime(datetime):
                 last_err = err
                 continue
         raise last_err
+
+    @staticmethod
+    def from_native(other: Union[datetime, date]):
+        """Create instance from standard lib date or datetime obj."""
+        if isinstance(other, datetime):
+            return DateTime(
+                other.year,
+                other.month,
+                other.day,
+                other.hour,
+                other.minute,
+                other.second,
+                other.microsecond,
+                other.tzinfo,
+                fold=other.fold,
+            )
+        elif isinstance(other, date):
+            return DateTime(other.year, other.month, other.day)
+        raise TypeError(
+            f"Can only create DateTime from date and datetime types, got {type(other)}"
+        )
 
     @staticmethod
     def sort_key(attr_path: Optional[str] = None):

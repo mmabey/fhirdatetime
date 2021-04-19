@@ -17,7 +17,6 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx_rtd_theme",
 ]
-root_doc = "../README"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
