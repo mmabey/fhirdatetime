@@ -32,6 +32,7 @@ False
 
 from datetime import date, datetime
 from datetime import tzinfo as tzinfo_
+from operator import itemgetter
 from typing import Optional, Union
 
 from ._datetime import _cmp, _format_offset, _format_time
@@ -260,6 +261,63 @@ class DateTime(datetime):
                 continue
         raise last_err
 
+    @staticmethod
+    def sort_key(attr_path: Optional[str] = None):
+        """Create a function appropriate for use as a sorting key.
+
+        .. important:: When there is ambiguity due to one :class:`DateTime` object
+            storing less-granular data than another (e.g., ``DateTime(2021)``
+            vs. ``DateTime(2021, 4)``), objects with missing values will be
+            ordered *before* those with more granular values that would
+            otherwise be considered equivalent when using the ``==`` operator.
+
+        When you need to sort a sequence of either :class:`DateTime` objects or
+        object that *contain* a :class:`DateTime` object, this function will
+        make it easier to sort the items properly.
+
+        There are two ways to use this function. The first is intended for use
+        when sorting a sequence of  :class:`DateTime` objects, something like
+        this (notice that ``sort_key()`` is called with no parameters):
+
+        >>> sorted(
+        ...     [DateTime(2021, 4), DateTime(2021), DateTime(2021, 4, 12)],
+        ...     key=DateTime.sort_key()
+        ... )
+        [DateTime(2021), DateTime(2021, 4), DateTime(2021, 4, 12)]
+
+        The second is for use when sorting a sequence of objects that have
+        :class:`DateTime` objects as attributes. This example sorts the
+        ``CarePlan`` objects by the care plan's period's start date:
+
+        >>> sorted(care_plan_list, key=DateTime.sort_key("period.start"))
+
+        In this example, ``sorted()`` passes each item in ``care_plan_list`` to
+        the ``sort_key`` static method, which first gets the ``period``
+        attribute of the item, then gets the ``start`` attribute of the period.
+        Finally, the year, month, day, and other values are returned to
+        ``sorted()``, which does the appropriate sorting on those values.
+
+        :param attr_path: A attribute "path" to the :class:`DateTime` object to
+            be used as the basis for sorting, such as ``"period.start"``.
+        :return: A function identifying values to use for sorting.
+        """
+        #: Useful for sorting multiple DateTime objects. E.g.:
+        #
+        i = itemgetter(0, 1, 2, 3, 4, 5, 6)
+        if attr_path is None:
+            return i
+
+        def caller(obj):
+            for attr in attr_path.split("."):
+                obj = getattr(obj, attr)
+            if not isinstance(obj, DateTime):
+                raise TypeError(
+                    f"attr_path must lead to an instance of DateTime, not {type(obj)}"
+                )
+            return i(obj)
+
+        return caller
+
     def _cmp(self, other: ComparableTypes):
         if not isinstance(other, (DateTime, datetime, date)):
             raise TypeError(f"Cannot compare DateTime and {type(other)}")
@@ -316,3 +374,52 @@ class DateTime(datetime):
 
     def __gt__(self, other: ComparableTypes):
         return self._cmp(other) > 0
+
+    def __repr__(self):
+        """Convert to formal string, for repr()."""
+        f = [
+            self._year,
+            self._month,
+            self._day,
+            self._hour,
+            self._minute,
+            self._second,
+            self._microsecond,
+        ]
+        while f[-1] in {0, None}:
+            del f[-1]
+        s = "%s.%s(%s)" % (
+            self.__class__.__module__,
+            self.__class__.__qualname__,
+            ", ".join(map(str, f)),
+        )
+        if self._tzinfo is not None:
+            assert s[-1:] == ")"
+            s = s[:-1] + ", tzinfo=%r" % self._tzinfo + ")"
+        if self._fold:
+            assert s[-1:] == ")"
+            s = s[:-1] + ", fold=1)"
+        return s
+
+    def __getitem__(self, item):
+        if item == 0:
+            val = self.year
+        elif item == 1:
+            val = self.month
+        elif item == 2:
+            val = self.day
+        elif item == 3:
+            val = self.hour
+        elif item == 4:
+            val = self.minute
+        elif item == 5:
+            val = self.second
+        elif item == 6:
+            val = self.microsecond
+        else:
+            raise IndexError("Valid indexes are 0-6")
+
+        if val is None:
+            # Assume we're accessing for sorting purposes and empty values come first
+            val = -1
+        return val
