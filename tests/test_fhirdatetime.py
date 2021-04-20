@@ -11,7 +11,7 @@ from fhirdatetime import DateTime, __version__
 
 def test_version():
     """Check library version is what it should be."""
-    assert __version__ == "0.1.0-alpha.1"
+    assert __version__ == "0.1.0-alpha.2"
 
 
 def compare_native(dt: DateTime, other: Union[date, datetime]):

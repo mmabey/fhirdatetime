@@ -3,7 +3,7 @@ known_third_party = ["pytest", "sphinx_rtd_theme"]
 
 [tool.poetry]
 name = "fhirdatetime"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 description = "A datetime-compatible class for FHIR date/datetime values."
 authors = ["Mike Mabey <mike.mabey@ooda-health.com>"]
 
