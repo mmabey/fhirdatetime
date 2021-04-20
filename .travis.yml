@@ -1,0 +1,31 @@
+language: python
+python:
+  - '3.7'
+  - '3.8'
+  - '3.9'
+#  - '3.10'
+env:
+  - PYTHON_VERSION=py37
+  - PYTHON_VERSION=py38
+  - PYTHON_VERSION=py39
+  global:
+    secure: XbEp3MFLRf7ng/DWr7GYwHF1XFdIubx5e4A4b5yyMl5SFxESQWMN7ZaVGcz2i5gZEON38zCVSMEIYYkdba3qPNVjazISXaQ6bj+QhPrcoauKOU04g4zaV4DGMqqLVntmahPYwbdhEJcuJBy5LIXO7Gxbd/DEXvYH5dsxSAisZexSVMg1y7S5iUP7i2xAisivP1UcDQNPynri0sEKOhUG7ZWSPZGAIkg1RrmaQhoaTyKhXHy/a5aKnuemzDqfhX7slnSb781h5Cgu9/DO5lHXtGTtopqM5i26A5swij9I0ef1H7cjgpAKUCQEWbUwAKVnl/rUZMIiwqZxZVzQ6lOlhuM7K8jTeYSFBbSjm5fqZhEQpK8YcFad0xW+sHEd8zuDetP76cVJ+vZ13nsNmxXR+gphXME3QF+xiYzqn852jIwU4XDTLUdIQcsbsaRRo0iP8opHQ95MpZCTcc+PqVTgKnmG70ht098ac0mpZ5nvkE8lq197IRm/KUB3nv11lNQZ/VbSicgaXnVHj/aVPtSJDArpYnelm05zUySBV9CMkdeTkdiewDmA9p+3T8TmGx0fzJT4u7fzBvqxesa9yE6rR4tuFOZn30X3Ex/cZqkF7kgibhjsV2Ky8HigCBUKLUnjD9mwHavh6AxkEh2LZlVyvnvEKd84RXGz9z++MGbKDoI=
+before_install:
+  - pip install poetry
+install:
+  - poetry install -v
+  - pip install tox-travis
+script:
+  - tox
+after_success:
+  - coveralls
+before_deploy:
+  - poetry config repositories.testpypi https://test.pypi.org/simple
+  - poetry config http-basic.testpypi __token__ $TEST_PYPI_PW
+  - poetry build
+deploy:
+  provider: script
+  script: poetry publish -r testpypi
+  on:
+    condition: "$PYTHON_VERSION == py39"
+    tags: true

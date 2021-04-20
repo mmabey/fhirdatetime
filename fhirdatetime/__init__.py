@@ -38,7 +38,7 @@ from typing import Optional, Union
 from ._datetime import _cmp, _format_offset, _format_time
 
 __all__ = ["DateTime", "__version__"]
-__version__ = "0.1.0"
+__version__ = "0.1.0-alpha.1"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
