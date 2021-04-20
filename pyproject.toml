@@ -3,19 +3,40 @@ known_third_party = ["pytest", "sphinx_rtd_theme"]
 
 [tool.poetry]
 name = "fhirdatetime"
-version = "0.1.0"
-description = ""
+version = "0.1.0b1"
+description = "A datetime-compatible class for FHIR date/datetime values."
 authors = ["Mike Mabey <mike.mabey@ooda-health.com>"]
 
 [tool.poetry.dependencies]
-python = "^3.6.1"
+python = "^3.7"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
 pre-commit = "^2.12.0"
 Sphinx = "^3.5.4"
 sphinx-rtd-theme = "^0.5.2"
+tox = "^3.23.0"
+coveralls = "^3.0.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+isolated_build = True
+envlist = py37,py38,py39,py310
+skip_missing_interpreters = True
+
+[tox:.package]
+basepython = python3
+
+[testenv]
+passenv = TRAVIS TRAVIS_*
+deps =
+    pytest
+    coveralls
+commands =
+    coverage run --source fhirdatetime -m pytest
+"""

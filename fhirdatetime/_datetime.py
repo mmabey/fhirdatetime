@@ -8,7 +8,7 @@ much everything was copied directly from the standard library without editing.
 
 from datetime import timedelta
 
-__all__ = ["_format_time", "_days_in_month", "_format_offset", "_cmp"]
+__all__ = ["_format_time", "_format_offset", "_cmp"]
 
 # -1 is a placeholder for indexing purposes.
 _DAYS_IN_MONTH = [-1, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -19,28 +19,6 @@ for dim in _DAYS_IN_MONTH[1:]:
     _DAYS_BEFORE_MONTH.append(dbm)
     dbm += dim
 del dbm, dim
-
-
-def _is_leap(year):
-    """year -> 1 if leap year, else 0."""
-    # Copied directly from datetime
-    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
-
-
-def _days_before_year(year):
-    """year -> number of days before January 1st of year."""
-    # Copied directly from datetime
-    y = year - 1
-    return y * 365 + y // 4 - y // 100 + y // 400
-
-
-def _days_in_month(year, month):
-    """year, month -> number of days in that month in that year."""
-    # Copied directly from datetime
-    assert 1 <= month <= 12, month
-    if month == 2 and _is_leap(year):
-        return 29
-    return _DAYS_IN_MONTH[month]
 
 
 def _cmp(x, y):

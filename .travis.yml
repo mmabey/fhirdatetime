@@ -1,0 +1,38 @@
+language: python
+python:
+  - '3.7'
+  - '3.8'
+  - '3.9'
+env:
+  global:
+    - secure: XbEp3MFLRf7ng/DWr7GYwHF1XFdIubx5e4A4b5yyMl5SFxESQWMN7ZaVGcz2i5gZEON38zCVSMEIYYkdba3qPNVjazISXaQ6bj+QhPrcoauKOU04g4zaV4DGMqqLVntmahPYwbdhEJcuJBy5LIXO7Gxbd/DEXvYH5dsxSAisZexSVMg1y7S5iUP7i2xAisivP1UcDQNPynri0sEKOhUG7ZWSPZGAIkg1RrmaQhoaTyKhXHy/a5aKnuemzDqfhX7slnSb781h5Cgu9/DO5lHXtGTtopqM5i26A5swij9I0ef1H7cjgpAKUCQEWbUwAKVnl/rUZMIiwqZxZVzQ6lOlhuM7K8jTeYSFBbSjm5fqZhEQpK8YcFad0xW+sHEd8zuDetP76cVJ+vZ13nsNmxXR+gphXME3QF+xiYzqn852jIwU4XDTLUdIQcsbsaRRo0iP8opHQ95MpZCTcc+PqVTgKnmG70ht098ac0mpZ5nvkE8lq197IRm/KUB3nv11lNQZ/VbSicgaXnVHj/aVPtSJDArpYnelm05zUySBV9CMkdeTkdiewDmA9p+3T8TmGx0fzJT4u7fzBvqxesa9yE6rR4tuFOZn30X3Ex/cZqkF7kgibhjsV2Ky8HigCBUKLUnjD9mwHavh6AxkEh2LZlVyvnvEKd84RXGz9z++MGbKDoI=
+    - secure: mEbSPVx/EWZZKOS/FEv5QczS7hdvI2+YgwQKkvUF4EqHlcUIS+zsN+RxLogaEHKvTP3tVRVWMSXl1oD92UCJpranSiqfiAqagt2QYxaOc2Q+J218C8Oahb/7D1VM6bnAufHEPAMyGQ+6+0QaWAxyI+omWoAeGN+3UPcuLDf/nhHV5QxxT1FWGOAR7h8UBI7TW/2TXbKOwAopo6RSrqmkfKXQHE9ljFWcJy3FYL0kP8VjxWLzEDxoL+3lZoMkygLM301c4eQ2OS7+0vm/jwbkwuZCoKmwVRdWnaeEYMeKsc+kKJtMZz5oSPpM867dQg22o7aHlTcVSpwVtYFfYuCrAM4ax9LktoXGTfmy5N56I9hzbJ6iwvVJpn7qhoDW+gnojVIozOPJmOyOGTGMTStyrdtHyTgR0qzN7G/4HwWl7+Zeg++FuLhb7LPkptr8NrGiOoVK9x1wjJHJkAXYWdhRub0/ocz9zEO4nX7deZC3gLgs+hxCsZMz0G2HGVwD0eEhcnOykgouM6D6pOl40Lp+Rk1i5aLr+WjOsnesi//IMDqBDLOpNt6S7thTfSvmAa8ghAxJk8jp2FrwbSyiojajKdxTRoPod4AO1j5luY/APMMh7YjTT4vIQnFfcHBxCKC6LmyzhcFAzy0dz+4k7/7X9df6pVBxbzZq6Oa52rQj/GY=
+before_install:
+  - pip install poetry
+install:
+  - poetry install -v
+  - pip install tox-travis
+script:
+  - tox
+after_success:
+  - coveralls
+before_deploy:
+  - poetry config repositories.testpypi https://test.pypi.org/simple
+  - poetry config pypi-token.testpypi $TEST_PYPI_PW
+  - poetry config pypi-token.pypi $PYPI_PW
+deploy:
+  - provider: script
+    script: poetry publish --build -r testpypi -vvv
+    cleanup: false
+    on:
+      repo: mmabey/fhirdatetime
+      condition: "$TRAVIS_PYTHON_VERSION == 3.9"
+      tags: true
+      all_branches: true
+  - provider: script
+    script: poetry publish --build -vvv
+    cleanup: false
+    on:
+      repo: mmabey/fhirdatetime
+      condition: "$TRAVIS_PYTHON_VERSION == 3.9"
+      branch: main

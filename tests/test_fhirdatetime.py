@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Test parameters of creating DateTime objects."""
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Union
 
 import pytest
@@ -11,7 +11,14 @@ from fhirdatetime import DateTime, __version__
 
 def test_version():
     """Check library version is what it should be."""
-    assert __version__ == "0.1.0"
+    ver = "0.1.0b1"
+    assert __version__ == ver
+    with open("pyproject.toml") as proj:
+        for line in proj:
+            if line.startswith("version = "):
+                assert line == f'version = "{ver}"\n'
+                return
+    raise ValueError("Unable to find version string in pyproject.toml")
 
 
 def compare_native(dt: DateTime, other: Union[date, datetime]):
@@ -69,12 +76,40 @@ cases = {
             "microsecond": 999_999,  # Max value for microsecond
         },
         {"year": datetime(2011, 9, 12, 14, 53)},
+        {
+            "year": datetime(
+                2020, 11, 1, 23, 53, tzinfo=timezone(timedelta(hours=-6)), fold=1
+            )
+        },
         {"year": date(2011, 9, 12)},
         {"year": "2011"},
         {"year": "2011-09"},
         {"year": "2011-09-12"},
         {"year": "2011-09-12T12:14"},
         {"year": "2011-09-12T12:14:31-06:00"},
+        {"year": "2011-09-12T12:14:31-06:00:05"},
+        {
+            "year": datetime(
+                2011,
+                9,
+                12,
+                12,
+                14,
+                31,
+                tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
+            ).isoformat()
+        },
+        {
+            "year": datetime(
+                2011,
+                9,
+                12,
+                12,
+                14,
+                31,
+                tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
+            ).isoformat(timespec="milliseconds")
+        },
     ],
     "fail_type": [
         {"year": None},
@@ -97,9 +132,29 @@ cases = {
             "second": 6,
             "microsecond": 1_999_999,
         },
-        {"year": "2011-09-1212:14"},
+        {"year": "2011-09-1212:14"},  # Missing spacer, fromisoformat fails
+        {"year": 2021, "day": 13},  # No month
+        {"year": 2021, "month": 2, "hour": 23, "minute": 59},  # No day
+        {"year": 2021, "month": 2, "day": 28, "minute": 59},  # No hour
+        {"year": 2021, "month": 2, "day": 28, "hour": 23},  # No Minute
+        {"year": 2021, "month": 2, "day": 28, "tzinfo": timezone.utc},  # No time
     ],
 }
+
+
+@pytest.mark.parametrize(
+    "param",
+    (
+        date.today().isoformat(),
+        datetime.utcnow().isoformat(),
+        {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54},
+        "2011-09-12T12:14:31-06:00",
+    ),
+)
+@pytest.mark.xfail(raises=TypeError, strict=True)
+def test_from_native_xfail(param):
+    """Test creation of a DateTime from a native object, should fail."""
+    DateTime.from_native(param)
 
 
 @pytest.mark.parametrize("params", cases["success"])

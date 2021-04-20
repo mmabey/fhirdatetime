@@ -100,6 +100,16 @@ eq = [
     ),
 ]
 
+eq_xf = [
+    (
+        DateTime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
+        DateTime(2021).isoformat(),
+    ),
+    (DateTime(2021), {2021}),
+    (DateTime(2021), [2021]),
+    (DateTime(2021), (2021,)),
+]
+
 gt = [
     (
         DateTime(year=2021),
@@ -136,11 +146,24 @@ def test_eq(obj_a, obj_b):
     assert obj_a == obj_b
 
 
-@pytest.mark.parametrize("obj_a, obj_b", gt + lt, ids=idfn)
-@pytest.mark.xfail(raises=AssertionError, strict=True)
+@pytest.mark.parametrize("obj_a, obj_b", eq_xf + gt + lt, ids=idfn)
+@pytest.mark.xfail(raises=(AssertionError, TypeError), strict=True)
 def test_eq_fail(obj_a, obj_b):
     """Tests for equality that should fail."""
     assert obj_a == obj_b
+
+
+@pytest.mark.parametrize("obj_a, obj_b", gt + lt, ids=idfn)
+def test_ne(obj_a, obj_b):
+    """Tests for inequality."""
+    assert obj_a != obj_b
+
+
+@pytest.mark.parametrize("obj_a, obj_b", eq, ids=idfn)
+@pytest.mark.xfail(raises=AssertionError, strict=True)
+def test_ne_fail(obj_a, obj_b):
+    """Tests for inequality that should fail."""
+    assert obj_a != obj_b
 
 
 @pytest.mark.parametrize("obj_a, obj_b", eq + gt, ids=idfn)

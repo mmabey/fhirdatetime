@@ -38,7 +38,7 @@ from typing import Optional, Union
 from ._datetime import _cmp, _format_offset, _format_time
 
 __all__ = ["DateTime", "__version__"]
-__version__ = "0.1.0"
+__version__ = "0.1.0b1"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
@@ -231,7 +231,6 @@ class DateTime(datetime):
         except ValueError:
             pass
 
-        last_err = None
         for fmt in ("%Y", "%Y-%m", "%Y-%m-%d"):
             try:
                 return cls.strptime(date_string, fmt)
@@ -301,8 +300,6 @@ class DateTime(datetime):
             be used as the basis for sorting, such as ``"period.start"``.
         :return: A function identifying values to use for sorting.
         """
-        #: Useful for sorting multiple DateTime objects. E.g.:
-        #
         i = itemgetter(0, 1, 2, 3, 4, 5, 6)
         if attr_path is None:
             return i
@@ -329,12 +326,9 @@ class DateTime(datetime):
             base_compare = True
         else:
             myoff = self.utcoffset()
-            try:
-                otoff = other.utcoffset()
-            except AttributeError:
-                base_compare = True
-            else:
-                base_compare = myoff == otoff
+            # other must have a utcoffset value here because ottz must be non-None
+            otoff = other.utcoffset()
+            base_compare = myoff == otoff
 
         if base_compare:
             print("Doing a base compare")

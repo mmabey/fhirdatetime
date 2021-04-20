@@ -35,11 +35,3 @@ repos:
   hooks:
   - id: black
     language_version: python3.9
-- repo: local
-  hooks:
-  - id: pytest-check
-    name: pytest-check
-    entry: poetry run pytest
-    language: system
-    pass_filenames: false
-    always_run: true
