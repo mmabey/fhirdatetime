@@ -29,3 +29,4 @@ deploy:
   on:
     condition: "$PYTHON_VERSION == py39"
     tags: true
+    all_branches: true
