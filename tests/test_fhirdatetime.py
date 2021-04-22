@@ -11,7 +11,7 @@ from fhirdatetime import DateTime, __version__
 
 def test_version():
     """Check library version is what it should be."""
-    ver = "0.1.0b1"
+    ver = "0.1.0b2"
     assert __version__ == ver
     with open("pyproject.toml") as proj:
         for line in proj:
@@ -88,6 +88,7 @@ cases = {
         {"year": "2011-09-12T12:14"},
         {"year": "2011-09-12T12:14:31-06:00"},
         {"year": "2011-09-12T12:14:31-06:00:05"},
+        {"year": "2016-01-26T21:58:41.000Z"},
         {
             "year": datetime(
                 2011,

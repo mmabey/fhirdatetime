@@ -30,7 +30,7 @@ False
 False
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from datetime import tzinfo as tzinfo_
 from operator import itemgetter
 from typing import Optional, Union
@@ -38,7 +38,7 @@ from typing import Optional, Union
 from ._datetime import _cmp, _format_offset, _format_time
 
 __all__ = ["DateTime", "__version__"]
-__version__ = "0.1.0b1"
+__version__ = "0.1.0b2"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
@@ -231,12 +231,18 @@ class DateTime(datetime):
         except ValueError:
             pass
 
-        for fmt in ("%Y", "%Y-%m", "%Y-%m-%d"):
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%f%Z", "%Y", "%Y-%m", "%Y-%m-%d"):
             try:
                 return cls.strptime(date_string, fmt)
             except ValueError as err:
                 last_err = err
                 continue
+        try:
+            return cls.strptime(date_string, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+                tzinfo=timezone.utc
+            )
+        except ValueError:
+            pass
         raise last_err
 
     @staticmethod

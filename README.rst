@@ -20,8 +20,8 @@ The `FHIR specification <https://www.hl7.org/fhir/>`_ from HL7 is "a
 standard for health care data exchange." The FHIR spec includes
 `date <https://www.hl7.org/fhir/datatypes.html#date>`_ and
 `datetime <https://www.hl7.org/fhir/datatypes.html#dateTime>`_ data types
-that provide more flexibility than the standard Python :obj:`date` and
-:obj:`datetime` types. This makes sense when you consider a patient may
+that provide more flexibility than the standard Python ``date`` and
+``datetime`` types. This makes sense when you consider a patient may
 report to their provider that they have experience a particular symptom
 since a particular year without knowing the month or day of onset.
 
@@ -40,8 +40,8 @@ Usage
 Creation
 ********
 
-The :any:`DateTime` class is designed to be used to store date/datetime values
-from FHIR payloads (which are JSON strings), you can create instances from :obj:`str`
+The ``fhirdatetime.DateTime`` class is designed to be used to store date/datetime values
+from FHIR payloads (which are JSON strings), you can create instances from ``str``
 values:
 
 >>> DateTime("2021-03-15")
@@ -56,7 +56,7 @@ fhirdatetime.DateTime(2021, 3, 15, 20, 54)
 
 One purpose of this library is to allow flexibility in granularity without
 sacrificing the ability to compare (using <, >, ==, etc.) against objects
-of the same type as well as native :obj:`date` and :obj:`datetime` objects.
+of the same type as well as native ``date`` and ``datetime`` objects.
 
 
 Comparison
@@ -81,19 +81,19 @@ False
 Sorting
 *******
 
-.. important:: When there is ambiguity due to one :any:`DateTime` object
+.. important:: When there is ambiguity due to one ``DateTime`` object
     storing less-granular data than another (e.g., ``DateTime(2021)``
     vs. ``DateTime(2021, 4)``), objects with missing values will be
     ordered *before* those with more granular values that would
     otherwise be considered equivalent when using the ``==`` operator.
 
-When you need to sort a sequence of either :any:`DateTime` objects or
-object that *contain* a :any:`DateTime` object, the :any:`DateTime.sort_key()`
+When you need to sort a sequence of either ``DateTime`` objects or
+object that *contain* a ``DateTime`` object, the ``DateTime.sort_key()``
 function will make it easier to sort the items properly.
 
 There are two ways to use this function. The first is intended for use
-when sorting a sequence of  :any:`DateTime` objects, something like
-this (notice that :any:`sort_key()` is called with no parameters):
+when sorting a sequence of ``DateTime`` objects, something like
+this (notice that ``sort_key()`` is called with no parameters):
 
 >>> sorted(
 ...     [DateTime(2021, 4), DateTime(2021), DateTime(2021, 4, 12)],
@@ -102,7 +102,7 @@ this (notice that :any:`sort_key()` is called with no parameters):
 [DateTime(2021), DateTime(2021, 4), DateTime(2021, 4, 12)]
 
 The second is for use when sorting a sequence of objects that have
-:any:`DateTime` objects as attributes. This example sorts the
+``DateTime`` objects as attributes. This example sorts the
 ``CarePlan`` [#care_ref]_ objects by the care plan's period's start date:
 
 >>> sorted(care_plan_list, key=DateTime.sort_key("period.start"))
@@ -113,7 +113,7 @@ attribute of the item, then gets the ``start`` attribute of the period.
 Finally, the year, month, day, and other values are returned to
 ``sorted()``, which does the appropriate sorting on those values.
 
-If neither of these use cases of the :any:`sort_key()` function apply to what you
+If neither of these use cases of the ``sort_key()`` function apply to what you
 need to do, you can always use a custom lambda to do your sorting. For example, the
 following is equivalent to the care plan sorting example:
 
