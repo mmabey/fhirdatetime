@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Test parameters of creating DateTime objects."""
+"""Test parameters of creating FhirDateTime objects."""
 
 import random
 from datetime import date, datetime, time, timedelta, timezone
@@ -7,14 +7,14 @@ from typing import Union
 
 import pytest
 
-from fhirdatetime import DateTime, __version__
+from fhirdatetime import FhirDateTime, __version__
 
 random.seed()
 
 
 def test_version():
     """Check library version is what it should be."""
-    ver = "0.1.0b2"
+    ver = "0.1.0b3"
     assert __version__ == ver
     with open("pyproject.toml") as proj:
         for line in proj:
@@ -24,7 +24,7 @@ def test_version():
     raise ValueError("Unable to find version string in pyproject.toml")
 
 
-def compare_native(dt: DateTime, other: Union[date, datetime]):
+def compare_native(dt: FhirDateTime, other: Union[date, datetime]):
     """Check values when obj is created from a native type."""
     assert dt.year == other.year
     assert dt.month == other.month
@@ -40,8 +40,8 @@ def compare_native(dt: DateTime, other: Union[date, datetime]):
 
 
 def make_and_assert(params: dict):
-    """Create and run tests on a DateTime object."""
-    dt = DateTime(**params)
+    """Create and run tests on a FhirDateTime object."""
+    dt = FhirDateTime(**params)
     if isinstance(params["year"], (date, datetime)):
         return compare_native(dt, params["year"])
 
@@ -176,35 +176,37 @@ cases = {
 )
 @pytest.mark.xfail(raises=TypeError, strict=True)
 def test_from_native_xfail(param):
-    """Test creation of a DateTime from a native object, should fail."""
-    DateTime.from_native(param)
+    """Test creation of a FhirDateTime from a native object, should fail."""
+    FhirDateTime.from_native(param)
 
 
 @pytest.mark.parametrize("params", cases["success"])
 def test_creation(params: dict):
-    """Test creation of a DateTime object with given params."""
+    """Test creation of a FhirDateTime object with given params."""
     make_and_assert(params)
 
 
 @pytest.mark.parametrize("params", cases["fail_type"])
 @pytest.mark.xfail(raises=TypeError, strict=True)
 def test_bad_creation_type(params: dict):
-    """Test creation of a DateTime object that should fail with TypeError."""
+    """Test creation of a FhirDateTime object that should fail with TypeError."""
     make_and_assert(params)
 
 
 @pytest.mark.parametrize("params", cases["fail_value"])
 @pytest.mark.xfail(raises=ValueError, strict=True)
 def test_bad_creation_value(params: dict):
-    """Test creation of a DateTime object that should fail with ValueError."""
+    """Test creation of a FhirDateTime object that should fail with ValueError."""
     make_and_assert(params)
 
 
 def test_getitem():
     """Test accessing an invalid index raises an error."""
-    d = DateTime(**random.choice(cases["success"]))
+    d = FhirDateTime(**random.choice(cases["success"]))
+    min_ = 0
+    max_ = 6
     for _ in range(100):
         with pytest.raises(IndexError):
-            _ = d[random.randrange(0, -2000, -1)]
+            _ = d[random.randrange(min_ - 1, -2000, -1)]
         with pytest.raises(IndexError):
-            _ = d[random.randrange(7, 2000)]
+            _ = d[random.randrange(max_ + 1, 2000)]

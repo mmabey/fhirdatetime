@@ -40,19 +40,19 @@ Usage
 Creation
 ********
 
-The :any:`DateTime` class is designed to be used to store date/datetime values
-from FHIR payloads (which are JSON strings), you can create instances from :obj:`str`
-values:
+The :any:`FhirDateTime` class is designed to be used to store date/datetime
+values from FHIR payloads (which are JSON strings), you can create instances
+from :obj:`str` values:
 
->>> DateTime("2021-03-15")
-fhirdatetime.DateTime(2021, 3, 15)
+>>> FhirDateTime("2021-03-15")
+fhirdatetime.FhirDateTime(2021, 3, 15)
 
 You can also convert native ``date`` and ``datetime`` objects directly:
 
->>> DateTime(date(2021, 3, 15))
-fhirdatetime.DateTime(2021, 3, 15)
->>> DateTime(datetime(2021, 3, 15, 20, 54))
-fhirdatetime.DateTime(2021, 3, 15, 20, 54)
+>>> FhirDateTime(date(2021, 3, 15))
+fhirdatetime.FhirDateTime(2021, 3, 15)
+>>> FhirDateTime(datetime(2021, 3, 15, 20, 54))
+fhirdatetime.FhirDateTime(2021, 3, 15, 20, 54)
 
 One purpose of this library is to allow flexibility in granularity without
 sacrificing the ability to compare (using <, >, ==, etc.) against objects
@@ -66,46 +66,47 @@ When comparing objects, only the values that are populated for *both*
 objects are considered. Consider the following examples in which only the
 years are compared:
 
->>> DateTime(2021) == DateTime(2021, 3, 15)
+>>> FhirDateTime(2021) == FhirDateTime(2021, 3, 15)
 True
->>> DateTime(2021) == datetime(2021, 3, 15, 23, 56)
+>>> FhirDateTime(2021) == datetime(2021, 3, 15, 23, 56)
 True
->>> DateTime(2021) == date(2021, 3, 15)
+>>> FhirDateTime(2021) == date(2021, 3, 15)
 True
->>> DateTime(2021) < DateTime(2021, 3, 15)
+>>> FhirDateTime(2021) < FhirDateTime(2021, 3, 15)
 False
->>> DateTime(2021) > DateTime(2021, 3, 15)
+>>> FhirDateTime(2021) > FhirDateTime(2021, 3, 15)
 False
 
 
 Sorting
 *******
 
-.. important:: When there is ambiguity due to one :any:`DateTime` object
-    storing less-granular data than another (e.g., ``DateTime(2021)``
-    vs. ``DateTime(2021, 4)``), objects with missing values will be
+.. important:: When there is ambiguity due to one :any:`FhirDateTime` object
+    storing less-granular data than another (e.g., ``FhirDateTime(2021)``
+    vs. ``FhirDateTime(2021, 4)``), objects with missing values will be
     ordered *before* those with more granular values that would
     otherwise be considered equivalent when using the ``==`` operator.
 
-When you need to sort a sequence of either :any:`DateTime` objects or
-object that *contain* a :any:`DateTime` object, the :any:`DateTime.sort_key()`
-function will make it easier to sort the items properly.
+When you need to sort a sequence of either :any:`FhirDateTime` objects or
+object that *contain* a :any:`FhirDateTime` object, the
+:any:`FhirDateTime.sort_key()` function will make it easier to sort the items
+properly.
 
 There are two ways to use this function. The first is intended for use
-when sorting a sequence of  :any:`DateTime` objects, something like
+when sorting a sequence of  :any:`FhirDateTime` objects, something like
 this (notice that :any:`sort_key()` is called with no parameters):
 
 >>> sorted(
-...     [DateTime(2021, 4), DateTime(2021), DateTime(2021, 4, 12)],
-...     key=DateTime.sort_key()
+...     [FhirDateTime(2021, 4), FhirDateTime(2021), FhirDateTime(2021, 4, 12)],
+...     key=FhirDateTime.sort_key()
 ... )
-[DateTime(2021), DateTime(2021, 4), DateTime(2021, 4, 12)]
+[FhirDateTime(2021), FhirDateTime(2021, 4), FhirDateTime(2021, 4, 12)]
 
 The second is for use when sorting a sequence of objects that have
-:any:`DateTime` objects as attributes. This example sorts the
+:any:`FhirDateTime` objects as attributes. This example sorts the
 ``CarePlan`` [#care_ref]_ objects by the care plan's period's start date:
 
->>> sorted(care_plan_list, key=DateTime.sort_key("period.start"))
+>>> sorted(care_plan_list, key=FhirDateTime.sort_key("period.start"))
 
 In this example, ``sorted()`` passes each item in ``care_plan_list`` to
 the ``sort_key`` static method, which first gets the ``period``
@@ -113,11 +114,11 @@ attribute of the item, then gets the ``start`` attribute of the period.
 Finally, the year, month, day, and other values are returned to
 ``sorted()``, which does the appropriate sorting on those values.
 
-If neither of these use cases of the :any:`sort_key()` function apply to what you
-need to do, you can always use a custom lambda to do your sorting. For example, the
-following is equivalent to the care plan sorting example:
+If neither of these use cases of the :any:`sort_key()` function apply to what
+you need to do, you can always use a custom lambda to do your sorting. For
+example, the following is equivalent to the care plan sorting example:
 
->>> sorted(care_plan_list, key=lambda x: DateTime.sort_key(x.period.start))
+>>> sorted(care_plan_list, key=lambda x: FhirDateTime.sort_key(x.period.start))
 
 
 License

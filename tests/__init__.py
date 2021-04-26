@@ -1,2 +1,2 @@
 # -*- coding: utf-8 -*-
-"""Tests for DateTime class."""
+"""Tests for FhirDateTime class."""

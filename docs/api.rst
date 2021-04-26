@@ -1,6 +1,6 @@
-``DateTime`` API
+``FhirDateTime`` API
 ================
 
-.. autoclass:: fhirdatetime.DateTime
+.. autoclass:: fhirdatetime.FhirDateTime
    :members: fromisoformat, from_native, sort_key
    :member-order: bysource

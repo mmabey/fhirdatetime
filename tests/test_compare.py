@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""Test for comparisons of DateTime and other objects."""
+"""Test for comparisons of FhirDateTime and other objects."""
 
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from fhirdatetime import DateTime
+from fhirdatetime import FhirDateTime
 
 
 def idfn(val):
@@ -19,121 +19,121 @@ ten_behind = timezone(timedelta(hours=-10))
 
 eq = [
     (
-        DateTime(year=2020),
-        DateTime(year=2020),
+        FhirDateTime(year=2020),
+        FhirDateTime(year=2020),
     ),
     (
-        DateTime(year=2020, month=1),
-        DateTime(year=2020, month=1),
+        FhirDateTime(year=2020, month=1),
+        FhirDateTime(year=2020, month=1),
     ),
     (
-        DateTime(year=2020, month=1, day=6),
-        DateTime(year=2020, month=1, day=6),
+        FhirDateTime(year=2020, month=1, day=6),
+        FhirDateTime(year=2020, month=1, day=6),
     ),
     (
-        DateTime(year=2020, month=1, day=6, hour=12, minute=30),
-        DateTime(year=2020, month=1, day=6, hour=12, minute=30),
+        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30),
+        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30),
     ),
     (
-        DateTime(2020, 1, 6, 12, 30, 8, 209495),
-        DateTime(2020, 1, 6, 12, 30, 8, 209495),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
     ),
     (
-        DateTime(2020, 1, 6, 12, 30, 8, 209495),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
         datetime(2020, 1, 6, 12, 30, 8, 209495),
     ),
     (
-        DateTime(2020, 1, 6, 12, 30, tzinfo=utc),
-        DateTime(2020, 1, 6, 2, 30, tzinfo=ten_behind),
+        FhirDateTime(2020, 1, 6, 12, 30, tzinfo=utc),
+        FhirDateTime(2020, 1, 6, 2, 30, tzinfo=ten_behind),
     ),
     (
-        DateTime(2020, 1, 6, 12, 30, tzinfo=utc),
+        FhirDateTime(2020, 1, 6, 12, 30, tzinfo=utc),
         datetime(2020, 1, 6, 2, 30, tzinfo=ten_behind),
     ),
     (  # Switches order of previous case
         datetime(2020, 1, 6, 2, 30, tzinfo=ten_behind),
-        DateTime(2020, 1, 6, 12, 30, tzinfo=utc),
+        FhirDateTime(2020, 1, 6, 12, 30, tzinfo=utc),
     ),
     (
-        DateTime(2020, 1, 6),
+        FhirDateTime(2020, 1, 6),
         date(2020, 1, 6),
     ),
     (  # Switches order of previous case
         date(2020, 1, 6),
-        DateTime(2020, 1, 6),
+        FhirDateTime(2020, 1, 6),
     ),
     (
-        DateTime(2020, 1, 6, 12, 30, 8, 209495),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
         date(2020, 1, 6),
     ),
     (
-        DateTime(2020, 1, 6, 12, 30, 8, tzinfo=ten_behind),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, tzinfo=ten_behind),
         date(2020, 1, 6),
     ),
     (
-        DateTime(2021),
-        DateTime(2021, 12),
+        FhirDateTime(2021),
+        FhirDateTime(2021, 12),
     ),
     (  # Switches order of previous case
-        DateTime(2021, 12),
-        DateTime(2021),
+        FhirDateTime(2021, 12),
+        FhirDateTime(2021),
     ),
     (
-        DateTime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
-        DateTime(2021),
+        FhirDateTime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
+        FhirDateTime(2021),
     ),
     (  # Switches order of previous case
-        DateTime(2021),
-        DateTime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
+        FhirDateTime(2021),
+        FhirDateTime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
     ),
     (
         datetime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
-        DateTime(2021),
+        FhirDateTime(2021),
     ),
     (
-        DateTime(2021),
+        FhirDateTime(2021),
         datetime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
     ),
     (  # Tests leap year math
-        DateTime(2020, 2, 29, 19, 0, 2, tzinfo=ten_behind),
-        DateTime(2020, 3, 1, 5, 0, 2, tzinfo=utc),
+        FhirDateTime(2020, 2, 29, 19, 0, 2, tzinfo=ten_behind),
+        FhirDateTime(2020, 3, 1, 5, 0, 2, tzinfo=utc),
     ),
 ]
 
 eq_xf = [
     (
-        DateTime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
-        DateTime(2021).isoformat(),
+        FhirDateTime(2021, 4, 21, 1, 32, 44, tzinfo=utc),
+        FhirDateTime(2021).isoformat(),
     ),
-    (DateTime(2021), {2021}),
-    (DateTime(2021), [2021]),
-    (DateTime(2021), (2021,)),
+    (FhirDateTime(2021), {2021}),
+    (FhirDateTime(2021), [2021]),
+    (FhirDateTime(2021), (2021,)),
 ]
 
 gt = [
     (
-        DateTime(year=2021),
-        DateTime(year=2020),
+        FhirDateTime(year=2021),
+        FhirDateTime(year=2020),
     ),
     (
-        DateTime(2021, 4, 21, 8, 7, 6, tzinfo=ten_behind),
-        DateTime(2021, 4, 21, 8, 7, 6, tzinfo=utc),
+        FhirDateTime(2021, 4, 21, 8, 7, 6, tzinfo=ten_behind),
+        FhirDateTime(2021, 4, 21, 8, 7, 6, tzinfo=utc),
     ),
     (
         date(2021, 4, 21),
-        DateTime(2020),
+        FhirDateTime(2020),
     ),
     (
-        DateTime(2022),
+        FhirDateTime(2022),
         date(2021, 4, 21),
     ),
     (
         datetime(2021, 4, 21, 12, 12, 12, tzinfo=utc),
-        DateTime(2020),
+        FhirDateTime(2020),
     ),
     (  # Tests leap year math
-        DateTime(2020, 2, 29, 19, 0, 3, tzinfo=ten_behind),
-        DateTime(2020, 3, 1, 5, 0, 2, tzinfo=utc),
+        FhirDateTime(2020, 2, 29, 19, 0, 3, tzinfo=ten_behind),
+        FhirDateTime(2020, 3, 1, 5, 0, 2, tzinfo=utc),
     ),
 ]
 

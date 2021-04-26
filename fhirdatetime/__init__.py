@@ -18,15 +18,15 @@ When comparing objects, only the values that are populated for *both*
 objects are considered. Consider the following examples in which only the
 years are compared:
 
->>> DateTime(2021) == DateTime(2021, 3, 15)
+>>> FhirDateTime(2021) == FhirDateTime(2021, 3, 15)
 True
->>> DateTime(2021) == datetime(2021, 3, 15, 23, 56)
+>>> FhirDateTime(2021) == datetime(2021, 3, 15, 23, 56)
 True
->>> DateTime(2021) == date(2021, 3, 15)
+>>> FhirDateTime(2021) == date(2021, 3, 15)
 True
->>> DateTime(2021) < DateTime(2021, 3, 15)
+>>> FhirDateTime(2021) < FhirDateTime(2021, 3, 15)
 False
->>> DateTime(2021) > DateTime(2021, 3, 15)
+>>> FhirDateTime(2021) > FhirDateTime(2021, 3, 15)
 False
 """
 from datetime import date, datetime, timedelta, timezone, tzinfo as tzinfo_
@@ -42,20 +42,20 @@ from ._datetime import (
     _ymd2ord,
 )
 
-__all__ = ["DateTime", "__version__"]
-__version__ = "0.1.0b2"
+__all__ = ["FhirDateTime", "__version__"]
+__version__ = "0.1.0b3"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
 
-ComparableTypes = Union["DateTime", datetime, date]
+ComparableTypes = Union["FhirDateTime", datetime, date]
 
 
-class DateTime(datetime):
+class FhirDateTime(datetime):
     """Type for representing datetime values from FHIR data."""
 
-    def __new__(cls, year, *_, **__) -> "DateTime":
-        """Start creating DateTime instance."""
+    def __new__(cls, year, *_, **__) -> "FhirDateTime":
+        """Start creating FhirDateTime instance."""
         # Give datetime.__new__() an arbitrary date to pass its value checks
         return super().__new__(cls, 1, 1, 1)
 
@@ -72,7 +72,7 @@ class DateTime(datetime):
         *,
         fold: int = 0,
     ):
-        """Create new DateTime instance.
+        """Create new FhirDateTime instance.
 
         :param year: Only required value [1, 9999].
         :param month: Optional [1-12].
@@ -83,13 +83,13 @@ class DateTime(datetime):
         :param microsecond: Optional [0-999999].
         :param tzinfo: Optional timezone instance.
         :param fold: In [0, 1]. See standard lib docs for more info.
-        :returns: New instance of DateTime.
+        :returns: New instance of FhirDateTime.
         """
         if isinstance(year, (datetime, date)):
             self._replace_with(year)
             return
         if isinstance(year, str):
-            dt = DateTime.fromisoformat(year)
+            dt = FhirDateTime.fromisoformat(year)
             self._replace_with(dt)
             return
 
@@ -218,7 +218,7 @@ class DateTime(datetime):
 
     @classmethod
     def fromisoformat(cls, date_string: str):
-        """Construct a DateTime from the output of DateTime.isoformat()."""
+        """Construct a FhirDateTime from the output of FhirDateTime.isoformat()."""
         try:
             return super().fromisoformat(date_string)
         except ValueError:
@@ -276,22 +276,22 @@ class DateTime(datetime):
         )
 
     @staticmethod
-    def from_native(other: Union[datetime, date]) -> "DateTime":
+    def from_native(other: Union[datetime, date]) -> "FhirDateTime":
         """Create instance from standard lib date or datetime obj."""
-        dt = DateTime(1)  # Just an arbitrary year
+        dt = FhirDateTime(1)  # Just an arbitrary year
         dt._replace_with(other)
         return dt
 
     def _replace_with(self, other):
-        if not isinstance(other, (DateTime, date, datetime)):
+        if not isinstance(other, (FhirDateTime, date, datetime)):
             raise TypeError(
-                f"Can only create DateTime from date, datetime types, "
+                f"Can only create FhirDateTime from date, datetime types, "
                 f"got {type(other).__name__}"
             )
         self._year = other.year
         self._month = other.month
         self._day = other.day
-        if isinstance(other, (DateTime, datetime)):
+        if isinstance(other, (FhirDateTime, datetime)):
             self._hour = other.hour
             self._minute = other.minute
             self._second = other.second
@@ -322,32 +322,33 @@ class DateTime(datetime):
     def sort_key(attr_path: Optional[str] = None):
         """Create a function appropriate for use as a sorting key.
 
-        .. important:: When there is ambiguity due to one :class:`DateTime` object
-            storing less-granular data than another (e.g., ``DateTime(2021)``
-            vs. ``DateTime(2021, 4)``), objects with missing values will be
-            ordered *before* those with more granular values that would
-            otherwise be considered equivalent when using the ``==`` operator.
+        .. important:: When there is ambiguity due to one :class:`FhirDateTime`
+            object storing less-granular data than another (e.g.,
+            ``FhirDateTime(2021)`` vs. ``FhirDateTime(2021, 4)``), objects with
+            missing values will be ordered *before* those with more granular
+            values that would otherwise be considered equivalent when using the
+            ``==`` operator.
 
-        When you need to sort a sequence of either :class:`DateTime` objects or
-        object that *contain* a :class:`DateTime` object, this function will
-        make it easier to sort the items properly.
+        When you need to sort a sequence of either :class:`FhirDateTime`
+        objects or object that *contain* a :class:`FhirDateTime` object, this
+        function will make it easier to sort the items properly.
 
         There are two ways to use this function. The first is intended for use
-        when sorting a sequence of  :class:`DateTime` objects, something like
-        this (notice that ``sort_key()`` is called with no parameters):
+        when sorting a sequence of  :class:`FhirDateTime` objects, something
+        like this (notice that ``sort_key()`` is called with no parameters):
 
         >>> sorted(
-        ...     [DateTime(2021, 4), DateTime(2021), DateTime(2021, 4, 12)],
-        ...     key=DateTime.sort_key()
+        ...     [FhirDateTime(2021, 4), FhirDateTime(2021), FhirDateTime(2021, 4, 12)],
+        ...     key=FhirDateTime.sort_key()
         ... )
-        [DateTime(2021), DateTime(2021, 4), DateTime(2021, 4, 12)]
+        [FhirDateTime(2021), FhirDateTime(2021, 4), FhirDateTime(2021, 4, 12)]
 
         The second is for use when sorting a sequence of objects that have
-        :class:`DateTime` objects as attributes. This example sorts the
+        :class:`FhirDateTime` objects as attributes. This example sorts the
         ``CarePlan`` objects by the care plan's period's start date:
 
         >>> care_plan_list = [...]
-        >>> sorted(care_plan_list, key=DateTime.sort_key("period.start"))
+        >>> sorted(care_plan_list, key=FhirDateTime.sort_key("period.start"))
 
         In this example, ``sorted()`` passes each item in ``care_plan_list`` to
         the ``sort_key`` static method, which first gets the ``period``
@@ -355,8 +356,9 @@ class DateTime(datetime):
         Finally, the year, month, day, and other values are returned to
         ``sorted()``, which does the appropriate sorting on those values.
 
-        :param attr_path: A attribute "path" to the :class:`DateTime` object to
-            be used as the basis for sorting, such as ``"period.start"``.
+        :param attr_path: A attribute "path" to the :class:`FhirDateTime`
+            object to be used as the basis for sorting, such as
+            ``"period.start"``.
         :return: A function identifying values to use for sorting.
         """
         i = itemgetter(0, 1, 2, 3, 4, 5, 6)
@@ -366,9 +368,9 @@ class DateTime(datetime):
         def caller(obj):
             for attr in attr_path.split("."):
                 obj = getattr(obj, attr)
-            if not isinstance(obj, DateTime):
+            if not isinstance(obj, FhirDateTime):
                 raise TypeError(
-                    f"attr_path must lead to an instance of DateTime, "
+                    f"attr_path must lead to an instance of FhirDateTime, "
                     f"not {type(obj).__name__}"
                 )
             return i(obj)
@@ -376,8 +378,8 @@ class DateTime(datetime):
         return caller
 
     def _cmp(self, other: ComparableTypes):
-        if not isinstance(other, (DateTime, datetime, date)):
-            raise TypeError(f"Cannot compare DateTime and {type(other).__name__}")
+        if not isinstance(other, (FhirDateTime, datetime, date)):
+            raise TypeError(f"Cannot compare FhirDateTime and {type(other).__name__}")
 
         mytz = self.tzinfo
         ottz = getattr(other, "tzinfo", None)
@@ -402,8 +404,8 @@ class DateTime(datetime):
             # Means all fields are the same and non-None
             return 0
 
-        # If we've reached this point, self has time values and other must be a DateTime
-        # or datetime object.
+        # If we've reached this point, self has time values and other must be a
+        # FhirDateTime or datetime object.
         diff = self - other
         if diff.days < 0:
             return -1
@@ -428,8 +430,8 @@ class DateTime(datetime):
         return self._cmp(other) > 0
 
     def __sub__(self, other):
-        """Subtract two DateTime objects, or a datetime or timedelta."""
-        if not isinstance(other, (DateTime, datetime)):
+        """Subtract two FhirDateTime objects, or a datetime or timedelta."""
+        if not isinstance(other, (FhirDateTime, datetime)):
             if isinstance(other, timedelta):
                 return self + -other
             return NotImplemented
