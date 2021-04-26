@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """Test parameters of creating DateTime objects."""
 
+import random
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Union
 
 import pytest
 
 from fhirdatetime import DateTime, __version__
+
+random.seed()
 
 
 def test_version():
@@ -117,14 +120,33 @@ cases = {
         {"year": time(12, 15)},
     ],
     "fail_value": [
-        {"year": 19999},
-        {"year": 2030, "month": 2, "day": 28, "hour": 14},
-        {"year": 2030, "month": 20, "day": 28},
-        {"year": 2030, "month": 2, "day": 30},
-        {"year": 2030, "month": 2, "day": 28, "hour": 24, "minute": 0},
-        {"year": 2030, "month": 2, "day": 28, "hour": 23, "minute": 60},
-        {"year": 2030, "month": 2, "day": 28, "hour": 23, "minute": 0, "second": 60},
-        {
+        {"year": 19999},  # Year out of range
+        {"year": 2030, "month": 2, "day": 28, "hour": 14},  # hour with no minute
+        {"year": 2030, "month": 20, "day": 28},  # month out of range
+        {"year": 2030, "month": 2, "day": 30},  # day out of range
+        {  # hour out of range
+            "year": 2030,
+            "month": 2,
+            "day": 28,
+            "hour": 24,
+            "minute": 0,
+        },
+        {  # minute out of range
+            "year": 2030,
+            "month": 2,
+            "day": 28,
+            "hour": 23,
+            "minute": 60,
+        },
+        {  # second out of range
+            "year": 2030,
+            "month": 2,
+            "day": 28,
+            "hour": 23,
+            "minute": 0,
+            "second": 60,
+        },
+        {  # microsecond out of range
             "year": 2030,
             "month": 2,
             "day": 28,
@@ -176,3 +198,13 @@ def test_bad_creation_type(params: dict):
 def test_bad_creation_value(params: dict):
     """Test creation of a DateTime object that should fail with ValueError."""
     make_and_assert(params)
+
+
+def test_getitem():
+    """Test accessing an invalid index raises an error."""
+    d = DateTime(**random.choice(cases["success"]))
+    for _ in range(100):
+        with pytest.raises(IndexError):
+            _ = d[random.randrange(0, -2000, -1)]
+        with pytest.raises(IndexError):
+            _ = d[random.randrange(7, 2000)]

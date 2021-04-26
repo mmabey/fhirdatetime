@@ -29,13 +29,18 @@ False
 >>> DateTime(2021) > DateTime(2021, 3, 15)
 False
 """
-
-from datetime import date, datetime, timezone
-from datetime import tzinfo as tzinfo_
+from datetime import date, datetime, timedelta, timezone, tzinfo as tzinfo_
 from operator import itemgetter
 from typing import Optional, Union
 
-from ._datetime import _cmp, _format_offset, _format_time
+from ._datetime import (
+    _check_datetime_fields,
+    _check_utc_offset,
+    _cmp,
+    _format_offset,
+    _format_time,
+    _ymd2ord,
+)
 
 __all__ = ["DateTime", "__version__"]
 __version__ = "0.1.0b2"
@@ -49,9 +54,14 @@ ComparableTypes = Union["DateTime", datetime, date]
 class DateTime(datetime):
     """Type for representing datetime values from FHIR data."""
 
-    def __new__(
-        cls,
-        year: int,
+    def __new__(cls, year, *_, **__) -> "DateTime":
+        """Start creating DateTime instance."""
+        # Give datetime.__new__() an arbitrary date to pass its value checks
+        return super().__new__(cls, 1, 1, 1)
+
+    def __init__(
+        self,
+        year: Union[int, str, datetime, date],
         month: Optional[int] = None,
         day: Optional[int] = None,
         hour: Optional[int] = None,
@@ -61,8 +71,8 @@ class DateTime(datetime):
         tzinfo: Optional[tzinfo_] = None,
         *,
         fold: int = 0,
-    ) -> "DateTime":
-        """Create new instance.
+    ):
+        """Create new DateTime instance.
 
         :param year: Only required value [1, 9999].
         :param month: Optional [1-12].
@@ -74,66 +84,40 @@ class DateTime(datetime):
         :param tzinfo: Optional timezone instance.
         :param fold: In [0, 1]. See standard lib docs for more info.
         :returns: New instance of DateTime.
-        :raises ValueError: When an invalid value for a field is provided.
         """
         if isinstance(year, (datetime, date)):
-            return DateTime.from_native(year)
+            self._replace_with(year)
+            return
         if isinstance(year, str):
-            return DateTime.fromisoformat(year)
+            dt = DateTime.fromisoformat(year)
+            self._replace_with(dt)
+            return
 
-        # To create an instance, we have to call datetime.__new__, but getting that to
-        # not raise errors requires passing it values that conform to datetime's
-        # requirements (such as having at least a year, month, and day). So, we save the
-        # values originally passed to this __new__() to store after calling datetime's
-        # __new__(). At the same time, we also check that more granular values aren't
-        # provided if less granular values aren't also provided (can't give a day
-        # without a month).
-        orig_month = month
-        orig_day = day
-        orig_hour = hour
-        orig_minute = minute
-
-        if month is None:
-            month = 1
-
-        if day is None:
-            day = 1
-        elif orig_month is None:
-            raise ValueError("Cannot specify day without month")
-
-        if hour is None:
-            if orig_minute is not None:
-                raise ValueError("If hour is None, minute must also be None")
-            hour = 0
-        elif orig_day is None:
-            raise ValueError("Cannot specify hour without day")
-
-        if minute is None:
-            if orig_hour is not None:
-                raise ValueError("If minute is None, hour must also be None")
-            minute = 0
-        elif orig_hour is None:
-            raise ValueError("Cannot specify minute without hour")
-
-        if tzinfo is not None:
-            if orig_hour is None:
-                raise ValueError("Cannot specify timezone without hour and minute")
-
-        self = super().__new__(
-            cls, year, month, day, hour, minute, second, microsecond, tzinfo, fold=fold
+        # Check values are within acceptable ranges
+        (
+            year,
+            month,
+            day,
+            hour,
+            minute,
+            second,
+            microsecond,
+            tzinfo,
+            fold,
+        ) = _check_datetime_fields(
+            year, month, day, hour, minute, second, microsecond, tzinfo, fold
         )
-        # Not sure why, but none of these values are set after calling super().__new__()
+
         self._year = year
-        self._month = orig_month
-        self._day = orig_day
-        self._hour = orig_hour
-        self._minute = orig_minute
+        self._month = month
+        self._day = day
+        self._hour = hour
+        self._minute = minute
         self._second = second
         self._microsecond = microsecond
         self._tzinfo = tzinfo
         self._hashcode = -1
         self._fold = fold
-        return self
 
     # Read-only field accessors - The datetime versions of these don't work 🤷
     @property
@@ -180,6 +164,15 @@ class DateTime(datetime):
     def fold(self):
         """Fold value."""
         return self._fold
+
+    def toordinal(self):
+        """Return proleptic Gregorian ordinal for the year, month and day.
+
+        January 1 of year 1 is day 1.  Only the year, month and day values
+        contribute to the result.
+        """
+        # Copied directly from datetime
+        return _ymd2ord(self._year, self._month, self._day)
 
     def isoformat(self, sep: str = "T", timespec: str = "auto") -> str:
         """Return the time formatted according to ISO.
@@ -245,26 +238,85 @@ class DateTime(datetime):
             pass
         raise last_err
 
-    @staticmethod
-    def from_native(other: Union[datetime, date]):
-        """Create instance from standard lib date or datetime obj."""
-        if isinstance(other, datetime):
-            return DateTime(
-                other.year,
-                other.month,
-                other.day,
-                other.hour,
-                other.minute,
-                other.second,
-                other.microsecond,
-                other.tzinfo,
-                fold=other.fold,
-            )
-        elif isinstance(other, date):
-            return DateTime(other.year, other.month, other.day)
-        raise TypeError(
-            f"Can only create DateTime from date and datetime types, got {type(other)}"
+    def replace(
+        self,
+        year=None,
+        month=None,
+        day=None,
+        hour=None,
+        minute=None,
+        second=None,
+        microsecond=None,
+        tzinfo=True,
+        *,
+        fold=None,
+    ):
+        """Return a new datetime with new values for the specified fields."""
+        # Copied straight from datetime
+        if year is None:
+            year = self.year
+        if month is None:
+            month = self.month
+        if day is None:
+            day = self.day
+        if hour is None:
+            hour = self.hour
+        if minute is None:
+            minute = self.minute
+        if second is None:
+            second = self.second
+        if microsecond is None:
+            microsecond = self.microsecond
+        if tzinfo is True:
+            tzinfo = self.tzinfo
+        if fold is None:
+            fold = self.fold
+        return type(self)(
+            year, month, day, hour, minute, second, microsecond, tzinfo, fold=fold
         )
+
+    @staticmethod
+    def from_native(other: Union[datetime, date]) -> "DateTime":
+        """Create instance from standard lib date or datetime obj."""
+        dt = DateTime(1)  # Just an arbitrary year
+        dt._replace_with(other)
+        return dt
+
+    def _replace_with(self, other):
+        if not isinstance(other, (DateTime, date, datetime)):
+            raise TypeError(
+                f"Can only create DateTime from date, datetime types, "
+                f"got {type(other).__name__}"
+            )
+        self._year = other.year
+        self._month = other.month
+        self._day = other.day
+        if isinstance(other, (DateTime, datetime)):
+            self._hour = other.hour
+            self._minute = other.minute
+            self._second = other.second
+            self._microsecond = other.microsecond
+            self._tzinfo = other.tzinfo
+            self._fold = other.fold
+        else:
+            self._hour = None
+            self._minute = None
+            self._second = None
+            self._microsecond = None
+            self._tzinfo = None
+            self._fold = 0
+
+    def utcoffset(self) -> Optional[timedelta]:
+        """Return the timezone offset as timedelta.
+
+        Positive east of UTC, negative west of UTC.
+        """
+        # Copied directly from datetime
+        if self._tzinfo is None:
+            return None
+        offset = self._tzinfo.utcoffset(self)
+        _check_utc_offset("utcoffset", offset)
+        return offset
 
     @staticmethod
     def sort_key(attr_path: Optional[str] = None):
@@ -294,6 +346,7 @@ class DateTime(datetime):
         :class:`DateTime` objects as attributes. This example sorts the
         ``CarePlan`` objects by the care plan's period's start date:
 
+        >>> care_plan_list = [...]
         >>> sorted(care_plan_list, key=DateTime.sort_key("period.start"))
 
         In this example, ``sorted()`` passes each item in ``care_plan_list`` to
@@ -315,7 +368,8 @@ class DateTime(datetime):
                 obj = getattr(obj, attr)
             if not isinstance(obj, DateTime):
                 raise TypeError(
-                    f"attr_path must lead to an instance of DateTime, not {type(obj)}"
+                    f"attr_path must lead to an instance of DateTime, "
+                    f"not {type(obj).__name__}"
                 )
             return i(obj)
 
@@ -323,7 +377,7 @@ class DateTime(datetime):
 
     def _cmp(self, other: ComparableTypes):
         if not isinstance(other, (DateTime, datetime, date)):
-            raise TypeError(f"Cannot compare DateTime and {type(other)}")
+            raise TypeError(f"Cannot compare DateTime and {type(other).__name__}")
 
         mytz = self.tzinfo
         ottz = getattr(other, "tzinfo", None)
@@ -337,7 +391,6 @@ class DateTime(datetime):
             base_compare = myoff == otoff
 
         if base_compare:
-            print("Doing a base compare")
             for f in DATE_FIELDS + TIME_FIELDS:
                 my = getattr(self, f, None)
                 ot = getattr(other, f, None)
@@ -350,8 +403,7 @@ class DateTime(datetime):
             return 0
 
         # If we've reached this point, self has time values and other must be a DateTime
-        # or datetime object, meaning the __sub__ operation from the parent class should
-        # succeed.
+        # or datetime object.
         diff = self - other
         if diff.days < 0:
             return -1
@@ -374,6 +426,30 @@ class DateTime(datetime):
 
     def __gt__(self, other: ComparableTypes):
         return self._cmp(other) > 0
+
+    def __sub__(self, other):
+        """Subtract two DateTime objects, or a datetime or timedelta."""
+        if not isinstance(other, (DateTime, datetime)):
+            if isinstance(other, timedelta):
+                return self + -other
+            return NotImplemented
+
+        days1 = self.toordinal()
+        days2 = other.toordinal()
+        secs1 = self._second + self._minute * 60 + self._hour * 3600
+        secs2 = other.second + other.minute * 60 + other.hour * 3600
+        base = timedelta(
+            days1 - days2, secs1 - secs2, self._microsecond - other.microsecond
+        )
+        if self._tzinfo is other.tzinfo:
+            return base
+        myoff = self.utcoffset()
+        otoff = other.utcoffset()
+        if myoff == otoff:
+            return base
+        if myoff is None or otoff is None:
+            raise TypeError("cannot mix naive and timezone-aware time")
+        return base + otoff - myoff
 
     def __repr__(self):
         """Convert to formal string, for repr()."""
