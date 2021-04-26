@@ -29,21 +29,21 @@ False
 >>> FhirDateTime(2021) > FhirDateTime(2021, 3, 15)
 False
 """
-from datetime import date, datetime, timedelta, timezone, tzinfo as tzinfo_
+from datetime import MAXYEAR, MINYEAR, date, datetime, timezone, tzinfo as tzinfo_
 from operator import itemgetter
 from typing import Optional, Union
 
 from ._datetime import (
-    _check_datetime_fields,
-    _check_utc_offset,
+    _check_int_field,
     _cmp,
+    _DateTime,
+    _days_in_month,
     _format_offset,
     _format_time,
-    _ymd2ord,
 )
 
 __all__ = ["FhirDateTime", "__version__"]
-__version__ = "0.1.0b3"
+__version__ = "0.1.0b5"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
@@ -51,7 +51,72 @@ TIME_FIELDS = ("hour", "minute", "second", "microsecond")
 ComparableTypes = Union["FhirDateTime", datetime, date]
 
 
-class FhirDateTime(datetime):
+def _check_datetime_fields(
+    year, month, day, hour, minute, second, microsecond, tzinfo, fold
+):
+    # Customized from version in datetime
+    # Year checks
+    year = _check_int_field(year)
+    if not MINYEAR <= year <= MAXYEAR:
+        raise ValueError("year must be in %d..%d" % (MINYEAR, MAXYEAR), year)
+
+    # Month checks
+    if month is not None:
+        month = _check_int_field(month)
+        if not 1 <= month <= 12:
+            raise ValueError("month must be in 1..12", month)
+
+    # Day checks
+    if day is not None:
+        if month is None:
+            raise ValueError("Cannot specify day without month")
+        day = _check_int_field(day)
+        dim = _days_in_month(year, month)
+        if not 1 <= day <= dim:
+            raise ValueError("day must be in 1..%d" % dim, day)
+
+    # Hour checks
+    if hour is not None:
+        if day is None:
+            raise ValueError("Cannot specify hour without day")
+        hour = _check_int_field(hour)
+        if not 0 <= hour <= 23:
+            raise ValueError("hour must be in 0..23", hour)
+
+    # Minute checks
+    if minute is not None:
+        if hour is None:
+            raise ValueError("Cannot specify minute without hour")
+        minute = _check_int_field(minute)
+        if not 0 <= minute <= 59:
+            raise ValueError("minute must be in 0..59", minute)
+
+    # Hour + Minute checks
+    if hour is None and minute is not None:
+        raise ValueError("If hour is None, minute must also be None")
+    if minute is None and hour is not None:
+        raise ValueError("If minute is None, hour must also be None")
+    if tzinfo is not None and hour is None:
+        raise ValueError("Cannot specify timezone without hour and minute")
+
+    # Second checks
+    if second is not None:
+        second = _check_int_field(second)
+        if not 0 <= second <= 59:
+            raise ValueError("second must be in 0..59", second)
+
+    # Microsecond, fold checks
+    if microsecond is not None:
+        microsecond = _check_int_field(microsecond)
+        if not 0 <= microsecond <= 999999:
+            raise ValueError("microsecond must be in 0..999999", microsecond)
+    if fold not in (0, 1):
+        raise ValueError("fold must be either 0 or 1", fold)
+
+    return year, month, day, hour, minute, second, microsecond, tzinfo, fold
+
+
+class FhirDateTime(_DateTime, datetime):
     """Type for representing datetime values from FHIR data."""
 
     def __new__(cls, year, *_, **__) -> "FhirDateTime":
@@ -107,72 +172,9 @@ class FhirDateTime(datetime):
         ) = _check_datetime_fields(
             year, month, day, hour, minute, second, microsecond, tzinfo, fold
         )
-
-        self._year = year
-        self._month = month
-        self._day = day
-        self._hour = hour
-        self._minute = minute
-        self._second = second
-        self._microsecond = microsecond
-        self._tzinfo = tzinfo
-        self._hashcode = -1
-        self._fold = fold
-
-    # Read-only field accessors - The datetime versions of these don't work 🤷
-    @property
-    def year(self):
-        """Year (1-9999)."""
-        return self._year
-
-    @property
-    def month(self):
-        """Month (1-12)."""
-        return self._month
-
-    @property
-    def day(self):
-        """Day (1-31)."""
-        return self._day
-
-    @property
-    def hour(self):
-        """Hour (0-23)."""
-        return self._hour
-
-    @property
-    def minute(self):
-        """Minute (0-59)."""
-        return self._minute
-
-    @property
-    def second(self):
-        """Second (0-59)."""
-        return self._second
-
-    @property
-    def microsecond(self):
-        """Microsecond (0-999999)."""
-        return self._microsecond
-
-    @property
-    def tzinfo(self):
-        """Timezone info object."""
-        return self._tzinfo
-
-    @property
-    def fold(self):
-        """Fold value."""
-        return self._fold
-
-    def toordinal(self):
-        """Return proleptic Gregorian ordinal for the year, month and day.
-
-        January 1 of year 1 is day 1.  Only the year, month and day values
-        contribute to the result.
-        """
-        # Copied directly from datetime
-        return _ymd2ord(self._year, self._month, self._day)
+        super().__init__(
+            year, month, day, hour, minute, second, microsecond, tzinfo, fold=fold
+        )
 
     def isoformat(self, sep: str = "T", timespec: str = "auto") -> str:
         """Return the time formatted according to ISO.
@@ -221,7 +223,7 @@ class FhirDateTime(datetime):
         """Construct a FhirDateTime from the output of FhirDateTime.isoformat()."""
         try:
             return super().fromisoformat(date_string)
-        except ValueError:
+        except (ValueError, IndexError):
             pass
 
         for fmt in ("%Y-%m-%dT%H:%M:%S.%f%Z", "%Y", "%Y-%m", "%Y-%m-%d"):
@@ -237,43 +239,6 @@ class FhirDateTime(datetime):
         except ValueError:
             pass
         raise last_err
-
-    def replace(
-        self,
-        year=None,
-        month=None,
-        day=None,
-        hour=None,
-        minute=None,
-        second=None,
-        microsecond=None,
-        tzinfo=True,
-        *,
-        fold=None,
-    ):
-        """Return a new datetime with new values for the specified fields."""
-        # Copied straight from datetime
-        if year is None:
-            year = self.year
-        if month is None:
-            month = self.month
-        if day is None:
-            day = self.day
-        if hour is None:
-            hour = self.hour
-        if minute is None:
-            minute = self.minute
-        if second is None:
-            second = self.second
-        if microsecond is None:
-            microsecond = self.microsecond
-        if tzinfo is True:
-            tzinfo = self.tzinfo
-        if fold is None:
-            fold = self.fold
-        return type(self)(
-            year, month, day, hour, minute, second, microsecond, tzinfo, fold=fold
-        )
 
     @staticmethod
     def from_native(other: Union[datetime, date]) -> "FhirDateTime":
@@ -305,18 +270,6 @@ class FhirDateTime(datetime):
             self._microsecond = None
             self._tzinfo = None
             self._fold = 0
-
-    def utcoffset(self) -> Optional[timedelta]:
-        """Return the timezone offset as timedelta.
-
-        Positive east of UTC, negative west of UTC.
-        """
-        # Copied directly from datetime
-        if self._tzinfo is None:
-            return None
-        offset = self._tzinfo.utcoffset(self)
-        _check_utc_offset("utcoffset", offset)
-        return offset
 
     @staticmethod
     def sort_key(attr_path: Optional[str] = None):
@@ -377,7 +330,7 @@ class FhirDateTime(datetime):
 
         return caller
 
-    def _cmp(self, other: ComparableTypes):
+    def _cmp(self, other: ComparableTypes, *_):
         if not isinstance(other, (FhirDateTime, datetime, date)):
             raise TypeError(f"Cannot compare FhirDateTime and {type(other).__name__}")
 
@@ -428,30 +381,6 @@ class FhirDateTime(datetime):
 
     def __gt__(self, other: ComparableTypes):
         return self._cmp(other) > 0
-
-    def __sub__(self, other):
-        """Subtract two FhirDateTime objects, or a datetime or timedelta."""
-        if not isinstance(other, (FhirDateTime, datetime)):
-            if isinstance(other, timedelta):
-                return self + -other
-            return NotImplemented
-
-        days1 = self.toordinal()
-        days2 = other.toordinal()
-        secs1 = self._second + self._minute * 60 + self._hour * 3600
-        secs2 = other.second + other.minute * 60 + other.hour * 3600
-        base = timedelta(
-            days1 - days2, secs1 - secs2, self._microsecond - other.microsecond
-        )
-        if self._tzinfo is other.tzinfo:
-            return base
-        myoff = self.utcoffset()
-        otoff = other.utcoffset()
-        if myoff == otoff:
-            return base
-        if myoff is None or otoff is None:
-            raise TypeError("cannot mix naive and timezone-aware time")
-        return base + otoff - myoff
 
     def __repr__(self):
         """Convert to formal string, for repr()."""
