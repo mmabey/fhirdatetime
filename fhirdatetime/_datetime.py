@@ -419,7 +419,7 @@ class IsoCalendarDate(tuple):
     def __reduce__(self):
         # This code is intended to pickle the object without making the
         # class public. See https://bugs.python.org/msg352381
-        return (tuple, (tuple(self),))
+        return tuple, (tuple(self),)
 
     def __repr__(self):
         return (
@@ -631,6 +631,21 @@ class _DateTime:
 
         return cls(*(date_components + time_components))
 
+    @property
+    def asdatetime(self) -> _datetime:
+        """Convert this object to the closest equivalent datetime object."""
+        return _datetime(
+            self.year,
+            self.month or 1,
+            self.day or 1,
+            self.hour or 0,
+            self.minute or 0,
+            self.second or 0,
+            self.microsecond or 0,
+            self.tzinfo or None,
+            fold=self.fold,
+        )
+
     def timetuple(self):
         """Return local time tuple compatible with time.localtime()."""
         dst = self.dst()
@@ -771,15 +786,16 @@ class _DateTime:
         elif not isinstance(tz, tzinfo):
             raise TypeError("tz argument must be an instance of tzinfo")
 
+        mydt = self.asdatetime
         mytz = self.tzinfo
         if mytz is None:
             mytz = self._local_timezone()
-            myoffset = mytz.utcoffset(self)
+            myoffset = mytz.utcoffset(mydt)
         else:
-            myoffset = mytz.utcoffset(self)
+            myoffset = mytz.utcoffset(mydt)
             if myoffset is None:
                 mytz = self.replace(tzinfo=None)._local_timezone()
-                myoffset = mytz.utcoffset(self)
+                myoffset = mytz.utcoffset(mydt)
 
         if tz is mytz:
             return self
@@ -788,7 +804,7 @@ class _DateTime:
         utc = (self - myoffset).replace(tzinfo=tz)
 
         # Convert from UTC to tz's local time.
-        return tz.fromutc(utc)
+        return tz.fromutc(utc.asdatetime)
 
     # Ways to produce a string.
 
@@ -888,11 +904,13 @@ class _DateTime:
         return _strptime._strptime_datetime(cls, date_string, format)
 
     def utcoffset(self):
-        """Return the timezone offset as timedelta positive east of UTC (negative west of
-        UTC)."""
+        """Return the timezone offset as timedelta
+
+        Positive east of UTC, negative west of UTC.
+        """
         if self._tzinfo is None:
             return None
-        offset = self._tzinfo.utcoffset(self)
+        offset = self._tzinfo.utcoffset(self.asdatetime)
         _check_utc_offset("utcoffset", offset)
         return offset
 

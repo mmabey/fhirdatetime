@@ -6,7 +6,7 @@ combine_as_imports = true
 
 [tool.poetry]
 name = "fhirdatetime"
-version = "0.1.0b5"
+version = "0.1.0b6"
 description = "A datetime-compatible class for FHIR date/datetime values."
 authors = ["Mike Mabey <mmabey@ieee.org>"]
 homepage = "https://github.com/mmabey/fhirdatetime"
@@ -14,7 +14,7 @@ license = "MIT"
 readme = "README.rst"
 
 [tool.poetry.dependencies]
-python = "^3.7"
+python = "^3.6.1"
 
 [tool.poetry.dev-dependencies]
 pytest = "^5.2"
@@ -32,7 +32,7 @@ build-backend = "poetry.core.masonry.api"
 legacy_tox_ini = """
 [tox]
 isolated_build = True
-envlist = py37,py38,py39,py310
+envlist = py36,py37,py38,py39,py310
 skip_missing_interpreters = True
 
 [tox:.package]

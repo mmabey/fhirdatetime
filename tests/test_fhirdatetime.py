@@ -2,6 +2,8 @@
 """Test parameters of creating FhirDateTime objects."""
 
 import random
+import sys
+import time as _time
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Union
 
@@ -14,7 +16,7 @@ random.seed()
 
 def test_version():
     """Check library version is what it should be."""
-    ver = "0.1.0b5"
+    ver = "0.1.0b6"
     assert __version__ == ver
     with open("pyproject.toml") as proj:
         for line in proj:
@@ -90,30 +92,7 @@ cases = {
         {"year": "2011-09-12"},
         {"year": "2011-09-12T12:14"},
         {"year": "2011-09-12T12:14:31-06:00"},
-        {"year": "2011-09-12T12:14:31-06:00:05"},
         {"year": "2016-01-26T21:58:41.000Z"},
-        {
-            "year": datetime(
-                2011,
-                9,
-                12,
-                12,
-                14,
-                31,
-                tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
-            ).isoformat()
-        },
-        {
-            "year": datetime(
-                2011,
-                9,
-                12,
-                12,
-                14,
-                31,
-                tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
-            ).isoformat(timespec="milliseconds")
-        },
     ],
     "fail_type": [
         {"year": None},
@@ -164,6 +143,36 @@ cases = {
     ],
 }
 
+# These tests only work on 3.7+
+if sys.version_info.major == 3 and sys.version_info.minor > 6:
+    cases["success"].extend(
+        [
+            {"year": "2011-09-12T12:14:31-06:00:05"},
+            {
+                "year": datetime(
+                    2011,
+                    9,
+                    12,
+                    12,
+                    14,
+                    31,
+                    tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
+                ).isoformat()
+            },
+            {
+                "year": datetime(
+                    2011,
+                    9,
+                    12,
+                    12,
+                    14,
+                    31,
+                    tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
+                ).isoformat(timespec="milliseconds")
+            },
+        ]
+    )
+
 
 @pytest.mark.parametrize(
     "param",
@@ -210,3 +219,33 @@ def test_getitem():
             _ = d[random.randrange(min_ - 1, -2000, -1)]
         with pytest.raises(IndexError):
             _ = d[random.randrange(max_ + 1, 2000)]
+
+
+def test_other_methods():
+    """Test other methods, mostly for coverage."""
+    dt = FhirDateTime(2020, 5, 4, 13, 42, 54, 295815, tzinfo=timezone.utc)
+    assert dt.date() == date(2020, 5, 4)
+    assert dt.time() == time(13, 42, 54, 295815)
+    assert (dt - timedelta(5)) == FhirDateTime(
+        2020, 4, 29, 13, 42, 54, 295815, tzinfo=timezone.utc
+    )
+
+    dt = dt.replace(tzinfo=timezone(timedelta(hours=3)))
+    assert dt.timetz() == time(13, 42, 54, 295815, tzinfo=timezone(timedelta(hours=3)))
+    assert dt.timetuple() == _time.struct_time((2020, 5, 4, 13, 42, 54, 0, 125, -1))
+
+    assert dt.isoformat() == "2020-05-04T13:42:54.295815+03:00"
+    assert dt.isoformat(timespec="milliseconds") == "2020-05-04T13:42:54.295+03:00"
+    with pytest.raises(ValueError):
+        dt.isoformat(timespec="doesn't exist")
+    with pytest.raises(ValueError):
+        FhirDateTime.fromisoformat("2020*02*13")
+
+    assert dt.weekday() == 0
+    assert dt.isoweekday() == 1
+    assert dt.isocalendar() == (2020, 19, 1)
+
+    assert dt.asdatetime == datetime(
+        2020, 5, 4, 13, 42, 54, 295815, timezone(timedelta(hours=3))
+    )
+    assert dt.timestamp() == 1588588974.295815

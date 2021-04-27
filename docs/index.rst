@@ -1,6 +1,10 @@
 ``fhirdatetime``: Flexible ``datetime`` Alternative
 ===================================================
 
+.. image:: https://readthedocs.org/projects/fhirdatetime/badge/?version=latest
+   :target: https://fhirdatetime.readthedocs.io/en/latest/?badge=latest
+   :alt: Documentation Status
+
 .. image:: https://img.shields.io/pypi/v/fhirdatetime.svg
         :target: https://pypi.python.org/pypi/fhirdatetime
 

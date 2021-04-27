@@ -43,7 +43,7 @@ from ._datetime import (
 )
 
 __all__ = ["FhirDateTime", "__version__"]
-__version__ = "0.1.0b5"
+__version__ = "0.1.0b6"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
@@ -300,7 +300,7 @@ class FhirDateTime(_DateTime, datetime):
         :class:`FhirDateTime` objects as attributes. This example sorts the
         ``CarePlan`` objects by the care plan's period's start date:
 
-        >>> care_plan_list = [...]
+        >>> care_plan_list = [...]  # See tests/test_sorting.py for full examples
         >>> sorted(care_plan_list, key=FhirDateTime.sort_key("period.start"))
 
         In this example, ``sorted()`` passes each item in ``care_plan_list`` to

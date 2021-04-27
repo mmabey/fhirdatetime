@@ -1,17 +1,21 @@
 ``fhirdatetime``: Flexible ``datetime`` Alternative
 ===================================================
 
+.. image:: https://readthedocs.org/projects/fhirdatetime/badge/?version=latest
+   :target: https://fhirdatetime.readthedocs.io/en/latest/?badge=latest
+   :alt: Documentation Status
+
 .. image:: https://img.shields.io/pypi/v/fhirdatetime.svg
-        :target: https://pypi.python.org/pypi/fhirdatetime
+   :target: https://pypi.python.org/pypi/fhirdatetime
 
 .. image:: https://travis-ci.com/mmabey/fhirdatetime.svg?branch=main
-    :target: https://travis-ci.com/mmabey/fhirdatetime
+   :target: https://travis-ci.com/mmabey/fhirdatetime
 
 .. image:: https://coveralls.io/repos/github/mmabey/fhirdatetime/badge.svg?branch=main
-    :target: https://coveralls.io/github/mmabey/fhirdatetime?branch=main
+   :target: https://coveralls.io/github/mmabey/fhirdatetime?branch=main
 
 .. image:: https://img.shields.io/badge/code%20style-black-000000.svg
-    :target: https://github.com/psf/black
+   :target: https://github.com/psf/black
 
 
 A ``datetime``-compatible class for FHIR date/datetime values.
