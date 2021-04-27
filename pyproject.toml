@@ -6,7 +6,7 @@ combine_as_imports = true
 
 [tool.poetry]
 name = "fhirdatetime"
-version = "0.1.0b6"
+version = "0.1.0b8"
 description = "A datetime-compatible class for FHIR date/datetime values."
 authors = ["Mike Mabey <mmabey@ieee.org>"]
 homepage = "https://github.com/mmabey/fhirdatetime"

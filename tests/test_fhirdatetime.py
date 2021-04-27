@@ -16,7 +16,7 @@ random.seed()
 
 def test_version():
     """Check library version is what it should be."""
-    ver = "0.1.0b6"
+    ver = "0.1.0b8"
     assert __version__ == ver
     with open("pyproject.toml") as proj:
         for line in proj:
@@ -249,3 +249,7 @@ def test_other_methods():
         2020, 5, 4, 13, 42, 54, 295815, timezone(timedelta(hours=3))
     )
     assert dt.timestamp() == 1588588974.295815
+
+    assert str(FhirDateTime("2020")) == "2020"
+    assert str(FhirDateTime("2020-05")) == "2020-05"
+    assert str(FhirDateTime("2020-05-04")) == "2020-05-04"

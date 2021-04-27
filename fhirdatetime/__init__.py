@@ -29,6 +29,7 @@ False
 >>> FhirDateTime(2021) > FhirDateTime(2021, 3, 15)
 False
 """
+import re
 from datetime import MAXYEAR, MINYEAR, date, datetime, timezone, tzinfo as tzinfo_
 from operator import itemgetter
 from typing import Optional, Union
@@ -43,10 +44,13 @@ from ._datetime import (
 )
 
 __all__ = ["FhirDateTime", "__version__"]
-__version__ = "0.1.0b6"
+__version__ = "0.1.0b8"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
+_y_pat = re.compile(r"^(\d{4})$")
+_ym_pat = re.compile(r"^(\d{4})-(\d{2})$")
+_ymd_pat = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 
 ComparableTypes = Union["FhirDateTime", datetime, date]
 
@@ -221,23 +225,29 @@ class FhirDateTime(_DateTime, datetime):
     @classmethod
     def fromisoformat(cls, date_string: str):
         """Construct a FhirDateTime from the output of FhirDateTime.isoformat()."""
+        # Check for shorter formats first
+        for pat in (_y_pat, _ym_pat, _ymd_pat):
+            m = re.match(pat, date_string)
+            if m:
+                return FhirDateTime(*[int(p) for p in m.groups()])
+
         try:
             return super().fromisoformat(date_string)
         except (ValueError, IndexError):
             pass
 
-        for fmt in ("%Y-%m-%dT%H:%M:%S.%f%Z", "%Y", "%Y-%m", "%Y-%m-%d"):
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
+            # These formats need to have the UTC timezone inserted after creation
+            try:
+                return cls.strptime(date_string, fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
+                pass
+
+        for fmt in ("%Y-%m-%dT%H:%M:%S.%f%Z", "%Y-%m-%dT%H:%M:%S%Z"):
             try:
                 return cls.strptime(date_string, fmt)
             except ValueError as err:
                 last_err = err
-                continue
-        try:
-            return cls.strptime(date_string, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
-                tzinfo=timezone.utc
-            )
-        except ValueError:
-            pass
         raise last_err
 
     @staticmethod
