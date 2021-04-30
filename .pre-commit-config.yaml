@@ -28,7 +28,7 @@ repos:
   hooks:
   - id: flake8
     exclude: _datetime\.py|docs
-    args: ["--ignore=E501,D105"]
+    args: ["--ignore=E501,D105,W503"]
     additional_dependencies: ['pep8-naming', 'flake8-docstrings', 'pydocstyle<4.0', 'darglint']
 - repo: https://github.com/ambv/black
   rev: 20.8b1

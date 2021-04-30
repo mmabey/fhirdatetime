@@ -37,13 +37,14 @@ from typing import Optional, Union
 from ._datetime import (
     _check_int_field,
     _cmp,
+    _Date,
     _DateTime,
     _days_in_month,
     _format_offset,
     _format_time,
 )
 
-__all__ = ["FhirDateTime", "__version__"]
+__all__ = ["FhirDateTime", "FhirDate", "__version__"]
 __version__ = "0.1.0b8"
 
 DATE_FIELDS = ("year", "month", "day")
@@ -51,14 +52,15 @@ TIME_FIELDS = ("hour", "minute", "second", "microsecond")
 _y_pat = re.compile(r"^(\d{4})$")
 _ym_pat = re.compile(r"^(\d{4})-(\d{2})$")
 _ymd_pat = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+_y_format = "{_year:04d}"
+_ym_format = _y_format + "-{_month:02d}"
+_ymd_format = _ym_format + "-{_day:02d}"
 
-ComparableTypes = Union["FhirDateTime", datetime, date]
+ComparableDateTypes = Union["FhirDate", date]
+ComparableDateTimeTypes = Union["FhirDateTime", "FhirDate", datetime, date]
 
 
-def _check_datetime_fields(
-    year, month, day, hour, minute, second, microsecond, tzinfo, fold
-):
-    # Customized from version in datetime
+def _check_date_fields(year, month, day):
     # Year checks
     year = _check_int_field(year)
     if not MINYEAR <= year <= MAXYEAR:
@@ -79,6 +81,10 @@ def _check_datetime_fields(
         if not 1 <= day <= dim:
             raise ValueError("day must be in 1..%d" % dim, day)
 
+    return year, month, day
+
+
+def _check_time_fields(day, hour, minute, second, microsecond, tzinfo, fold):
     # Hour checks
     if hour is not None:
         if day is None:
@@ -117,16 +123,208 @@ def _check_datetime_fields(
     if fold not in (0, 1):
         raise ValueError("fold must be either 0 or 1", fold)
 
-    return year, month, day, hour, minute, second, microsecond, tzinfo, fold
+    return hour, minute, second, microsecond, tzinfo, fold
 
 
-class FhirDateTime(_DateTime, datetime):
+class FhirDate(_Date, date):
+    """Type for representing date values from FHIR data."""
+
+    def __new__(cls, year, *_, **__) -> "FhirDate":
+        """Start creating FhirDate instance."""
+        # Give date.__new__() an arbitrary date to pass its value checks
+        return date.__new__(cls, 1, 1, 1)
+
+    def __init__(
+        self,
+        year: Union[int, str, date],
+        month: Optional[int] = None,
+        day: Optional[int] = None,
+    ):
+        """Create new FhirDate instance.
+
+        :param year: Only required value [1, 9999].
+        :param month: Optional [1-12].
+        :param day: Optional [1-31].
+        :returns: New instance of FhirDate.
+        """
+        if isinstance(year, (datetime, date)):
+            self._replace_with(year)
+            return
+        if isinstance(year, str):
+            dt = FhirDateTime.fromisoformat(year)
+            self._replace_with(dt)
+            return
+
+        # Check values are within acceptable ranges
+        year, month, day = _check_date_fields(year, month, day)
+        _Date.__init__(self, year, month, day)
+
+    def isoformat(self) -> str:
+        """Return the date formatted according to ISO.
+
+        The full format looks like 'YYYY-MM-DD'. By default, any missing part
+        is omitted.
+        """
+        if self._month is None:
+            fmt = _y_format
+        elif self._day is None:
+            fmt = _ym_format
+        else:
+            fmt = _ymd_format
+
+        return fmt.format(**self.__dict__)
+
+    @classmethod
+    def fromisoformat(cls, date_string: str):
+        """Construct a FhirDate from the output of FhirDate.isoformat()."""
+        for pat in (_y_pat, _ym_pat, _ymd_pat):
+            m = re.match(pat, date_string)
+            if m:
+                return FhirDate(*[int(p) for p in m.groups()])
+        raise ValueError("Unknown date format.")
+
+    @staticmethod
+    def from_native(other: date) -> "FhirDate":
+        """Create instance from standard lib date obj."""
+        d = FhirDate(1)  # Just an arbitrary year
+        d._replace_with(other)
+        return d
+
+    def _replace_with(self, other):
+        if not isinstance(other, (FhirDate, date)):
+            raise TypeError(
+                f"Can only create FhirDate from date types, got {type(other).__name__}"
+            )
+        self._year = other.year
+        self._month = other.month
+        self._day = other.day
+
+    @staticmethod
+    def sort_key(attr_path: Optional[str] = None):
+        """Create a function appropriate for use as a sorting key.
+
+        .. important:: When there is ambiguity due to one :class:`FhirDate`
+            object storing less-granular data than another (e.g.,
+            ``FhirDate(2021)`` vs. ``FhirDate(2021, 4)``), objects with missing
+            values will be ordered *before* those with more granular values
+            that would otherwise be considered equivalent when using the ``==``
+            operator.
+
+        When you need to sort a sequence of either :class:`FhirDate` objects or
+        object that *contain* a :class:`FhirDate` object, this function will
+        make it easier to sort the items properly.
+
+        There are two ways to use this function. The first is intended for use
+        when sorting a sequence of :class:`FhirDate` objects, something like
+        this (notice that ``sort_key()`` is called with no parameters):
+
+        >>> sorted(
+        ...     [FhirDate(2021, 4), FhirDate(2021), FhirDate(2021, 4, 12)],
+        ...     key=FhirDate.sort_key()
+        ... )
+        [FhirDate(2021), FhirDate(2021, 4), FhirDate(2021, 4, 12)]
+
+        The second is for use when sorting a sequence of objects that have
+        :class:`FhirDate` objects as attributes. This example sorts the
+        ``CarePlan`` objects by the care plan's period's start date:
+
+        >>> goal_list = [...]  # See tests/test_sorting.py for full examples
+        >>> sorted(goal_list, key=FhirDate.sort_key("startDate"))
+
+        In this example, ``sorted()`` passes each item in ``goal_list`` to the
+        ``sort_key`` static method, which  gets the ``startDate`` attribute of
+        the goal. Finally, the year, month, and day are returned to
+        ``sorted()``, which does the appropriate sorting on those values.
+
+        :param attr_path: A attribute "path" to the :class:`FhirDate` object to
+            be used as the basis for sorting, such as ``"startDate"``.
+        :return: A function identifying values to use for sorting.
+        """
+        i = itemgetter(0, 1, 2)
+        if attr_path is None:
+            return i
+
+        def caller(obj):
+            for attr in attr_path.split("."):
+                obj = getattr(obj, attr)
+            if not isinstance(obj, FhirDateTime):
+                raise TypeError(
+                    f"attr_path must lead to an instance of FhirDate, "
+                    f"not {type(obj).__name__}"
+                )
+            return i(obj)
+
+        return caller
+
+    def _cmp(self, other: ComparableDateTypes):
+        if not isinstance(other, (FhirDate, date)):
+            raise TypeError(f"Cannot compare FhirDate and {type(other).__name__}")
+
+        for f in DATE_FIELDS:
+            my = getattr(self, f, None)
+            ot = getattr(other, f, None)
+            if None in {my, ot}:
+                return 0
+            c = _cmp(my, ot)
+            if c != 0:
+                return c
+        # Means all fields are the same and non-None
+        return 0
+
+    def __eq__(self, other):
+        return self._cmp(other) == 0
+
+    def __ne__(self, other):
+        return self._cmp(other) != 0
+
+    def __le__(self, other):
+        return self._cmp(other) <= 0
+
+    def __lt__(self, other):
+        return self._cmp(other) < 0
+
+    def __ge__(self, other):
+        return self._cmp(other) >= 0
+
+    def __gt__(self, other):
+        return self._cmp(other) > 0
+
+    __str__ = isoformat
+
+    def __repr__(self):  # TODO: Review
+        """Convert to formal string, for repr()."""
+        f = [self._year, self._month, self._day]
+        while f[-1] in {0, None}:
+            del f[-1]
+        return "%s.%s(%s)" % (
+            self.__class__.__module__,
+            self.__class__.__qualname__,
+            ", ".join(map(str, f)),
+        )
+
+    def __getitem__(self, item):
+        if item == 0:
+            val = self.year
+        elif item == 1:
+            val = self.month
+        elif item == 2:
+            val = self.day
+        else:
+            raise IndexError("Valid indexes are 0-2")
+
+        if val is None:
+            # Assume we're accessing for sorting purposes and empty values come first
+            val = -1
+        return val
+
+
+class FhirDateTime(FhirDate, _DateTime, datetime):
     """Type for representing datetime values from FHIR data."""
 
     def __new__(cls, year, *_, **__) -> "FhirDateTime":
         """Start creating FhirDateTime instance."""
         # Give datetime.__new__() an arbitrary date to pass its value checks
-        return super().__new__(cls, 1, 1, 1)
+        return datetime.__new__(cls, 1, 1, 1)
 
     def __init__(
         self,
@@ -163,21 +361,12 @@ class FhirDateTime(_DateTime, datetime):
             return
 
         # Check values are within acceptable ranges
-        (
-            year,
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            microsecond,
-            tzinfo,
-            fold,
-        ) = _check_datetime_fields(
-            year, month, day, hour, minute, second, microsecond, tzinfo, fold
+        year, month, day = _check_date_fields(year, month, day)
+        hour, minute, second, microsecond, tzinfo, fold = _check_time_fields(
+            day, hour, minute, second, microsecond, tzinfo, fold
         )
-        super().__init__(
-            year, month, day, hour, minute, second, microsecond, tzinfo, fold=fold
+        _DateTime.__init__(
+            self, year, month, day, hour, minute, second, microsecond, tzinfo, fold=fold
         )
 
     def isoformat(self, sep: str = "T", timespec: str = "auto") -> str:
@@ -196,25 +385,16 @@ class FhirDateTime(_DateTime, datetime):
         terms of the time to include. Valid options are 'auto', 'hours',
         'minutes', 'seconds', 'milliseconds' and 'microseconds'.
         """
-        y = "{_year:04d}"
-        ym = y + "-{_month:02d}"
-        ymd = ym + "-{_day:02d}"
-        ymdt = ymd + f"{sep}" + "{t}"
-        t = ""
+        if None in {self._hour, self._minute}:
+            return FhirDate.isoformat(self)
+        fmt = (
+            _ymd_format
+            + f"""{sep}{_format_time(
+            self._hour, self._minute, self._second, self._microsecond, timespec
+        )}"""
+        )
 
-        if self._month is None:
-            fmt = y
-        elif self._day is None:
-            fmt = ym
-        elif None in {self._hour, self._minute}:
-            fmt = ymd
-        else:
-            fmt = ymdt
-            t = _format_time(
-                self._hour, self._minute, self._second, self._microsecond, timespec
-            )
-
-        s = fmt.format(**{"t": t, **self.__dict__})
+        s = fmt.format(**self.__dict__)
         off = self.utcoffset()
         tz = _format_offset(off)
         if tz:
@@ -232,7 +412,9 @@ class FhirDateTime(_DateTime, datetime):
                 return FhirDateTime(*[int(p) for p in m.groups()])
 
         try:
-            return super().fromisoformat(date_string)
+            # To understand this next call, make sure you know exactly how super()
+            # works with __mro__: https://docs.python.org/3/library/functions.html#super
+            return super(FhirDate, cls).fromisoformat(date_string)
         except (ValueError, IndexError):
             pass
 
@@ -297,7 +479,7 @@ class FhirDateTime(_DateTime, datetime):
         function will make it easier to sort the items properly.
 
         There are two ways to use this function. The first is intended for use
-        when sorting a sequence of  :class:`FhirDateTime` objects, something
+        when sorting a sequence of :class:`FhirDateTime` objects, something
         like this (notice that ``sort_key()`` is called with no parameters):
 
         >>> sorted(
@@ -340,8 +522,8 @@ class FhirDateTime(_DateTime, datetime):
 
         return caller
 
-    def _cmp(self, other: ComparableTypes, *_):
-        if not isinstance(other, (FhirDateTime, datetime, date)):
+    def _cmp(self, other: ComparableDateTimeTypes, *_):
+        if not isinstance(other, (FhirDateTime, FhirDate, datetime, date)):
             raise TypeError(f"Cannot compare FhirDateTime and {type(other).__name__}")
 
         mytz = self.tzinfo
@@ -373,24 +555,6 @@ class FhirDateTime(_DateTime, datetime):
         if diff.days < 0:
             return -1
         return diff and 1 or 0
-
-    def __eq__(self, other: ComparableTypes):
-        return self._cmp(other) == 0
-
-    def __ne__(self, other: ComparableTypes):
-        return self._cmp(other) != 0
-
-    def __le__(self, other: ComparableTypes):
-        return self._cmp(other) <= 0
-
-    def __lt__(self, other: ComparableTypes):
-        return self._cmp(other) < 0
-
-    def __ge__(self, other: ComparableTypes):
-        return self._cmp(other) >= 0
-
-    def __gt__(self, other: ComparableTypes):
-        return self._cmp(other) > 0
 
     def __repr__(self):
         """Convert to formal string, for repr()."""

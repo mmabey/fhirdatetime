@@ -9,16 +9,18 @@ import math as _math
 import sys
 import time as _time
 from datetime import (
+    MAXYEAR,
+    MINYEAR,
     date as _date_class,
     datetime as _datetime,
-    time,
     time as _time_class,
     timedelta,
     timezone,
-    tzinfo,
+    tzinfo as _tzinfo,
 )
 
 __all__ = [
+    "_Date",
     "_DateTime",
     "_check_int_field",
     "_check_utc_offset",
@@ -87,6 +89,86 @@ def _ymd2ord(year, month, day):
     dim = _days_in_month(year, month)
     assert 1 <= day <= dim, "day must be in 1..%d" % dim
     return _days_before_year(year) + _days_before_month(year, month) + day
+
+
+_DI400Y = _days_before_year(401)  # number of days in 400 years
+_DI100Y = _days_before_year(101)  # _  "    "   "   " 100   "
+_DI4Y = _days_before_year(5)  # _      "    "   "   "   4   "
+
+# A 4-year cycle has an extra leap day over what we'd get from pasting
+# together 4 single years.
+assert _DI4Y == 4 * 365 + 1
+
+# Similarly, a 400-year cycle has an extra leap day over what we'd get from
+# pasting together 4 100-year cycles.
+assert _DI400Y == 4 * _DI100Y + 1
+
+# OTOH, a 100-year cycle has one fewer leap day than we'd get from
+# pasting together 25 4-year cycles.
+assert _DI100Y == 25 * _DI4Y - 1
+
+
+def _ord2ymd(n):
+    """ordinal -> (year, month, day), considering 01-Jan-0001 as day 1."""
+
+    # n is a 1-based index, starting at 1-Jan-1.  The pattern of leap years
+    # repeats exactly every 400 years.  The basic strategy is to find the
+    # closest 400-year boundary at or before n, then work with the offset
+    # from that boundary to n.  Life is much clearer if we subtract 1 from
+    # n first -- then the values of n at 400-year boundaries are exactly
+    # those divisible by _DI400Y:
+    #
+    #     D  M   Y            n              n-1
+    #     -- --- ----        ----------     ----------------
+    #     31 Dec -400        -_DI400Y       -_DI400Y -1
+    #      1 Jan -399         -_DI400Y +1   -_DI400Y      400-year boundary
+    #     ...
+    #     30 Dec  000        -1             -2
+    #     31 Dec  000         0             -1
+    #      1 Jan  001         1              0            400-year boundary
+    #      2 Jan  001         2              1
+    #      3 Jan  001         3              2
+    #     ...
+    #     31 Dec  400         _DI400Y        _DI400Y -1
+    #      1 Jan  401         _DI400Y +1     _DI400Y      400-year boundary
+    n -= 1
+    n400, n = divmod(n, _DI400Y)
+    year = n400 * 400 + 1  # ..., -399, 1, 401, ...
+
+    # Now n is the (non-negative) offset, in days, from January 1 of year, to
+    # the desired date.  Now compute how many 100-year cycles precede n.
+    # Note that it's possible for n100 to equal 4!  In that case 4 full
+    # 100-year cycles precede the desired day, which implies the desired
+    # day is December 31 at the end of a 400-year cycle.
+    n100, n = divmod(n, _DI100Y)
+
+    # Now compute how many 4-year cycles precede it.
+    n4, n = divmod(n, _DI4Y)
+
+    # And now how many single years.  Again n1 can be 4, and again meaning
+    # that the desired day is December 31 at the end of the 4-year cycle.
+    n1, n = divmod(n, 365)
+
+    year += n100 * 100 + n4 * 4 + n1
+    if n1 == 4 or n100 == 4:
+        assert n == 0
+        return year - 1, 12, 31
+
+    # Now the year is correct, and n is the offset from January 1.  We find
+    # the month via an estimate that's either exact or one too large.
+    leapyear = n1 == 3 and (n4 != 24 or n100 == 3)
+    assert leapyear == _is_leap(year)
+    month = (n + 50) >> 5
+    preceding = _DAYS_BEFORE_MONTH[month] + (month > 2 and leapyear)
+    if preceding > n:  # estimate is too large
+        month -= 1
+        preceding -= _DAYS_IN_MONTH[month] + (month == 2 and leapyear)
+    n -= preceding
+    assert 0 <= n < _days_in_month(year, month)
+
+    # Now the year and month are correct, and n is the offset from the
+    # start of that month:  we're done!
+    return year, month, n + 1
 
 
 # Month and day names.  For localized versions, see the calendar module.
@@ -392,12 +474,339 @@ def _check_int_field(value):
 
 
 def _check_tzinfo_arg(tz):
-    if tz is not None and not isinstance(tz, tzinfo):
+    if tz is not None and not isinstance(tz, _tzinfo):
         raise TypeError("tzinfo argument must be None or of a tzinfo subclass")
 
 
 def _cmperror(x, y):
     raise TypeError("can't compare '%s' to '%s'" % (type(x).__name__, type(y).__name__))
+
+
+class _Date:
+    """Concrete date type.
+
+    Constructors:
+
+    __new__()
+    fromtimestamp()
+    today()
+    fromordinal()
+
+    Operators:
+
+    __repr__, __str__
+    __eq__, __le__, __lt__, __ge__, __gt__, __hash__
+    __add__, __radd__, __sub__ (add/radd only with timedelta arg)
+
+    Methods:
+
+    timetuple()
+    toordinal()
+    weekday()
+    isoweekday(), isocalendar(), isoformat()
+    ctime()
+    strftime()
+
+    Properties (readonly):
+    year, month, day
+    """
+
+    def __init__(self, year, month=None, day=None):
+        """Constructor."""
+        self._year = year
+        self._month = month
+        self._day = day
+        self._hashcode = -1
+
+    # Additional constructors
+
+    @classmethod
+    def fromtimestamp(cls, t):
+        """Construct a date from a POSIX timestamp (like time.time())."""
+        y, m, d, hh, mm, ss, weekday, jday, dst = _time.localtime(t)
+        return cls(y, m, d)
+
+    @classmethod
+    def today(cls):
+        """Construct a date from time.time()."""
+        t = _time.time()
+        return cls.fromtimestamp(t)
+
+    @classmethod
+    def fromordinal(cls, n):
+        """Construct a date from a proleptic Gregorian ordinal.
+
+        January 1 of year 1 is day 1.  Only the year, month and day are
+        non-zero in the result.
+        """
+        y, m, d = _ord2ymd(n)
+        return cls(y, m, d)
+
+    @classmethod
+    def fromisoformat(cls, date_string):
+        """Construct a date from the output of date.isoformat()."""
+        if not isinstance(date_string, str):
+            raise TypeError("fromisoformat: argument must be str")
+
+        try:
+            assert len(date_string) == 10
+            return cls(*_parse_isoformat_date(date_string))
+        except Exception:
+            raise ValueError(f"Invalid isoformat string: {date_string!r}")
+
+    @classmethod
+    def fromisocalendar(cls, year, week, day):
+        """Construct a date from the ISO year, week number and weekday.
+
+        This is the inverse of the date.isocalendar() function"""
+        # Year is bounded this way because 9999-12-31 is (9999, 52, 5)
+        if not MINYEAR <= year <= MAXYEAR:
+            raise ValueError(f"Year is out of range: {year}")
+
+        if not 0 < week < 53:
+            out_of_range = True
+
+            if week == 53:
+                # ISO years have 53 weeks in them on years starting with a
+                # Thursday and leap years starting on a Wednesday
+                first_weekday = _ymd2ord(year, 1, 1) % 7
+                if first_weekday == 4 or (first_weekday == 3 and _is_leap(year)):
+                    out_of_range = False
+
+            if out_of_range:
+                raise ValueError(f"Invalid week: {week}")
+
+        if not 0 < day < 8:
+            raise ValueError(f"Invalid weekday: {day} (range is [1, 7])")
+
+        # Now compute the offset from (Y, 1, 1) in days:
+        day_offset = (week - 1) * 7 + (day - 1)
+
+        # Calculate the ordinal day for monday, week 1
+        day_1 = _isoweek1monday(year)
+        ord_day = day_1 + day_offset
+
+        return cls(*_ord2ymd(ord_day))
+
+    # Conversions to string
+
+    def __repr__(self):
+        """Convert to formal string, for repr().
+
+        >>> dt = datetime(2010, 1, 1)
+        >>> repr(dt)
+        'datetime.datetime(2010, 1, 1, 0, 0)'
+
+        >>> dt = datetime(2010, 1, 1, tzinfo=timezone.utc)
+        >>> repr(dt)
+        'datetime.datetime(2010, 1, 1, 0, 0, tzinfo=datetime.timezone.utc)'
+        """
+        return "%s.%s(%d, %d, %d)" % (
+            self.__class__.__module__,
+            self.__class__.__qualname__,
+            self._year,
+            self._month,
+            self._day,
+        )
+
+    # XXX These shouldn't depend on time.localtime(), because that
+    # clips the usable dates to [1970 .. 2038).  At least ctime() is
+    # easily done without using strftime() -- that's better too because
+    # strftime("%c", ...) is locale specific.
+
+    def ctime(self):
+        """Return ctime() style string."""
+        weekday = self.toordinal() % 7 or 7
+        return "%s %s %2d 00:00:00 %04d" % (
+            _DAYNAMES[weekday],
+            _MONTHNAMES[self._month],
+            self._day,
+            self._year,
+        )
+
+    def strftime(self, fmt):
+        """Format using strftime()."""
+        return _wrap_strftime(self, fmt, self.timetuple())
+
+    def __format__(self, fmt):
+        if not isinstance(fmt, str):
+            raise TypeError("must be str, not %s" % type(fmt).__name__)
+        if len(fmt) != 0:
+            return self.strftime(fmt)
+        return str(self)
+
+    def isoformat(self):
+        """Return the date formatted according to ISO.
+
+        This is 'YYYY-MM-DD'.
+
+        References:
+        - http://www.w3.org/TR/NOTE-datetime
+        - http://www.cl.cam.ac.uk/~mgk25/iso-time.html
+        """
+        return "%04d-%02d-%02d" % (self._year, self._month, self._day)
+
+    __str__ = isoformat
+
+    # Read-only field accessors
+    @property
+    def year(self):
+        """year (1-9999)"""
+        return self._year
+
+    @property
+    def month(self):
+        """month (1-12)"""
+        return self._month
+
+    @property
+    def day(self):
+        """day (1-31)"""
+        return self._day
+
+    # Standard conversions, __eq__, __le__, __lt__, __ge__, __gt__,
+    # __hash__ (and helpers)
+
+    def timetuple(self):
+        """Return local time tuple compatible with time.localtime()."""
+        return _build_struct_time(self._year, self._month, self._day, 0, 0, 0, -1)
+
+    def toordinal(self):
+        """Return proleptic Gregorian ordinal for the year, month and day.
+
+        January 1 of year 1 is day 1.  Only the year, month and day values
+        contribute to the result.
+        """
+        return _ymd2ord(self._year, self._month, self._day)
+
+    def replace(self, year=None, month=None, day=None):
+        """Return a new date with new values for the specified fields."""
+        if year is None:
+            year = self._year
+        if month is None:
+            month = self._month
+        if day is None:
+            day = self._day
+        return type(self)(year, month, day)
+
+    # Comparisons of date objects with other.
+
+    def __eq__(self, other):
+        if isinstance(other, (_Date, _date_class)):
+            return self._cmp(other) == 0
+        return NotImplemented
+
+    def __le__(self, other):
+        if isinstance(other, (_Date, _date_class)):
+            return self._cmp(other) <= 0
+        return NotImplemented
+
+    def __lt__(self, other):
+        if isinstance(other, (_Date, _date_class)):
+            return self._cmp(other) < 0
+        return NotImplemented
+
+    def __ge__(self, other):
+        if isinstance(other, (_Date, _date_class)):
+            return self._cmp(other) >= 0
+        return NotImplemented
+
+    def __gt__(self, other):
+        if isinstance(other, (_Date, _date_class)):
+            return self._cmp(other) > 0
+        return NotImplemented
+
+    def _cmp(self, other):
+        assert isinstance(other, (_Date, _date_class))
+        y, m, d = self._year, self._month, self._day
+        y2, m2, d2 = other._year, other._month, other._day
+        return _cmp((y, m, d), (y2, m2, d2))
+
+    def __hash__(self):
+        """Hash."""
+        if self._hashcode == -1:
+            self._hashcode = hash(self._getstate())
+        return self._hashcode
+
+    # Computations
+
+    def __add__(self, other):
+        """Add a date to a timedelta."""
+        if isinstance(other, timedelta):
+            o = self.toordinal() + other.days
+            if 0 < o <= _MAXORDINAL:
+                return type(self).fromordinal(o)
+            raise OverflowError("result out of range")
+        return NotImplemented
+
+    __radd__ = __add__
+
+    def __sub__(self, other):
+        """Subtract two dates, or a date and a timedelta."""
+        if isinstance(other, timedelta):
+            return self + timedelta(-other.days)
+        if isinstance(other, (_Date, _date_class)):
+            days1 = self.toordinal()
+            days2 = other.toordinal()
+            return timedelta(days1 - days2)
+        return NotImplemented
+
+    def weekday(self):
+        """Return day of the week, where Monday == 0 ... Sunday == 6."""
+        return (self.toordinal() + 6) % 7
+
+    # Day-of-the-week and week-of-the-year, according to ISO
+
+    def isoweekday(self):
+        """Return day of the week, where Monday == 1 ... Sunday == 7."""
+        # 1-Jan-0001 is a Monday
+        return self.toordinal() % 7 or 7
+
+    def isocalendar(self):
+        """Return a named tuple containing ISO year, week number, and weekday.
+
+        The first ISO week of the year is the (Mon-Sun) week
+        containing the year's first Thursday; everything else derives
+        from that.
+
+        The first week is 1; Monday is 1 ... Sunday is 7.
+
+        ISO calendar algorithm taken from
+        http://www.phys.uu.nl/~vgent/calendar/isocalendar.htm
+        (used with permission)
+        """
+        year = self._year
+        week1monday = _isoweek1monday(year)
+        today = _ymd2ord(self._year, self._month, self._day)
+        # Internally, week and day have origin 0
+        week, day = divmod(today - week1monday, 7)
+        if week < 0:
+            year -= 1
+            week1monday = _isoweek1monday(year)
+            week, day = divmod(today - week1monday, 7)
+        elif week >= 52:
+            if today >= _isoweek1monday(year + 1):
+                year += 1
+                week = 0
+        return _IsoCalendarDate(year, week + 1, day + 1)
+
+    # Pickle support.
+
+    def _getstate(self):
+        yhi, ylo = divmod(self._year, 256)
+        return (bytes([yhi, ylo, self._month, self._day]),)
+
+    def __setstate(self, string):
+        yhi, ylo, self._month, self._day = string
+        self._year = yhi * 256 + ylo
+
+    def __reduce__(self):
+        return self.__class__, self._getstate()
+
+
+_Date.min = _Date(1, 1, 1)
+_Date.max = _Date(9999, 12, 31)
+_Date.resolution = timedelta(days=1)
 
 
 class IsoCalendarDate(tuple):
@@ -430,27 +839,22 @@ class IsoCalendarDate(tuple):
 
 _IsoCalendarDate = IsoCalendarDate
 del IsoCalendarDate
-_tzinfo_class = tzinfo
 
 
-class _DateTime:
+class _DateTime(_Date):
     """datetime(year, month, day[, hour[, minute[, second[, microsecond[,tzinfo]]]]])
 
     The year, month and day arguments are required. tzinfo may be None, or an
     instance of a tzinfo subclass. The remaining arguments may be ints.
     """
 
-    # def __new__(cls, *_, **__):
-    #     # Customized to circumvent the tangled web that is datetime.__new__()
-    #     return _datetime.__new__(cls, 1, 1, 1)
-
     def __init__(
         self,
         year,
         month=None,
         day=None,
-        hour=0,
-        minute=0,
+        hour=None,
+        minute=None,
         second=0,
         microsecond=0,
         tzinfo=None,
@@ -458,9 +862,7 @@ class _DateTime:
         fold=0,
     ):
         # Only stores the values given (does no validation of values)
-        self._year = year
-        self._month = month
-        self._day = day
+        super().__init__(year, month, day)
         self._hour = hour
         self._minute = minute
         self._second = second
@@ -470,21 +872,6 @@ class _DateTime:
         self._fold = fold
 
     # Read-only field accessors
-    @property
-    def year(self):
-        """year (1-9999)"""
-        return self._year
-
-    @property
-    def month(self):
-        """month (1-12)"""
-        return self._month
-
-    @property
-    def day(self):
-        """day (1-31)"""
-        return self._day
-
     @property
     def hour(self):
         """hour (0-23)"""
@@ -575,20 +962,20 @@ class _DateTime:
 
     @classmethod
     def now(cls, tz=None):
-        "Construct a datetime from time.time() and optional time zone info."
+        """Construct a datetime from time.time() and optional time zone info."""
         t = _time.time()
         return cls.fromtimestamp(t, tz)
 
     @classmethod
     def utcnow(cls):
-        "Construct a UTC datetime from time.time()."
+        """Construct a UTC datetime from time.time()."""
         t = _time.time()
         return cls.utcfromtimestamp(t)
 
     @classmethod
     def combine(cls, date, time, tzinfo=True):
-        "Construct a datetime from a given date and a given time."
-        if not isinstance(date, _date_class):
+        """Construct a datetime from a given date and a given time."""
+        if not isinstance(date, (_Date, _date_class)):
             raise TypeError("date argument must be a date instance")
         if not isinstance(time, _time_class):
             raise TypeError("time argument must be a time instance")
@@ -695,7 +1082,7 @@ class _DateTime:
         return (max, min)[self.fold](u1, u2)
 
     def timestamp(self):
-        "Return POSIX timestamp as float"
+        """Return POSIX timestamp as float"""
         if self._tzinfo is None:
             s = self._mktime()
             return s + self.microsecond / 1e6
@@ -703,7 +1090,7 @@ class _DateTime:
             return (self - _EPOCH).total_seconds()
 
     def utctimetuple(self):
-        "Return UTC time tuple compatible with time.gmtime()."
+        """Return UTC time tuple compatible with time.gmtime()."""
         offset = self.utcoffset()
         if offset:
             self -= offset
@@ -712,18 +1099,18 @@ class _DateTime:
         return _build_struct_time(y, m, d, hh, mm, ss, 0)
 
     def date(self):
-        "Return the date part."
+        """Return the date part."""
         return _date_class(self._year, self._month, self._day)
 
     def time(self):
-        "Return the time part, with tzinfo None."
-        return time(
+        """Return the time part, with tzinfo None."""
+        return _time_class(
             self.hour, self.minute, self.second, self.microsecond, fold=self.fold
         )
 
     def timetz(self):
-        "Return the time part, with same tzinfo."
-        return time(
+        """Return the time part, with same tzinfo."""
+        return _time_class(
             self.hour,
             self.minute,
             self.second,
@@ -783,7 +1170,7 @@ class _DateTime:
     def astimezone(self, tz=None):
         if tz is None:
             tz = self._local_timezone()
-        elif not isinstance(tz, tzinfo):
+        elif not isinstance(tz, _tzinfo):
             raise TypeError("tz argument must be an instance of tzinfo")
 
         mydt = self.asdatetime
@@ -809,7 +1196,7 @@ class _DateTime:
     # Ways to produce a string.
 
     def ctime(self):
-        "Return ctime() style string."
+        """Return ctime() style string."""
         weekday = self.toordinal() % 7 or 7
         return "%s %s %2d %02d:%02d:%02d %04d" % (
             _DAYNAMES[weekday],
@@ -885,20 +1272,9 @@ class _DateTime:
         """Convert to string, for str()."""
         return self.isoformat(sep=" ")
 
-    def strftime(self, fmt):
-        """Format using strftime()."""
-        return _wrap_strftime(self, fmt, self.timetuple())
-
-    def __format__(self, fmt):
-        if not isinstance(fmt, str):
-            raise TypeError("must be str, not %s" % type(fmt).__name__)
-        if len(fmt) != 0:
-            return self.strftime(fmt)
-        return str(self)
-
     @classmethod
     def strptime(cls, date_string, format):
-        "string, format -> new datetime parsed from a string (like time.strptime())."
+        """string, format -> new datetime parsed from a string (like time.strptime())."""
         import _strptime
 
         return _strptime._strptime_datetime(cls, date_string, format)
@@ -942,23 +1318,12 @@ class _DateTime:
         _check_utc_offset("dst", offset)
         return offset
 
-    # Standard conversions, __eq__, __le__, __lt__, __ge__, __gt__,
-    # __hash__ (and helpers)
-
-    def toordinal(self):
-        """Return proleptic Gregorian ordinal for the year, month and day.
-
-        January 1 of year 1 is day 1.  Only the year, month and day values
-        contribute to the result.
-        """
-        return _ymd2ord(self._year, self._month, self._day)
-
     # Comparisons of datetime objects with other.
 
     def __eq__(self, other):
         if isinstance(other, (_DateTime, _datetime)):
             return self._cmp(other, allow_mixed=True) == 0
-        elif not isinstance(other, _date_class):
+        elif not isinstance(other, (_Date, _date_class)):
             return NotImplemented
         else:
             return False
@@ -966,7 +1331,7 @@ class _DateTime:
     def __le__(self, other):
         if isinstance(other, (_DateTime, _datetime)):
             return self._cmp(other) <= 0
-        elif not isinstance(other, _date_class):
+        elif not isinstance(other, (_Date, _date_class)):
             return NotImplemented
         else:
             _cmperror(self, other)
@@ -974,7 +1339,7 @@ class _DateTime:
     def __lt__(self, other):
         if isinstance(other, (_DateTime, _datetime)):
             return self._cmp(other) < 0
-        elif not isinstance(other, _date_class):
+        elif not isinstance(other, (_Date, _date_class)):
             return NotImplemented
         else:
             _cmperror(self, other)
@@ -982,7 +1347,7 @@ class _DateTime:
     def __ge__(self, other):
         if isinstance(other, (_DateTime, _datetime)):
             return self._cmp(other) >= 0
-        elif not isinstance(other, _date_class):
+        elif not isinstance(other, (_Date, _date_class)):
             return NotImplemented
         else:
             _cmperror(self, other)
@@ -990,7 +1355,7 @@ class _DateTime:
     def __gt__(self, other):
         if isinstance(other, (_DateTime, _datetime)):
             return self._cmp(other) > 0
-        elif not isinstance(other, _date_class):
+        elif not isinstance(other, (_Date, _date_class)):
             return NotImplemented
         else:
             _cmperror(self, other)
@@ -1064,8 +1429,10 @@ class _DateTime:
         minute, second = divmod(rem, 60)
         if 0 < delta.days <= _MAXORDINAL:
             return type(self).combine(
-                _date_class.fromordinal(delta.days),
-                time(hour, minute, second, delta.microseconds, tzinfo=self._tzinfo),
+                _Date.fromordinal(delta.days),
+                _time_class(
+                    hour, minute, second, delta.microseconds, tzinfo=self._tzinfo
+                ),
             )
         raise OverflowError("result out of range")
 
@@ -1112,45 +1479,6 @@ class _DateTime:
                 )
         return self._hashcode
 
-    # Day-of-the-week and week-of-the-year, according to ISO
-
-    def weekday(self):
-        """Return day of the week, where Monday == 0 ... Sunday == 6."""
-        return (self.toordinal() + 6) % 7
-
-    def isoweekday(self):
-        """Return day of the week, where Monday == 1 ... Sunday == 7."""
-        # 1-Jan-0001 is a Monday
-        return self.toordinal() % 7 or 7
-
-    def isocalendar(self):
-        """Return a named tuple containing ISO year, week number, and weekday.
-
-        The first ISO week of the year is the (Mon-Sun) week
-        containing the year's first Thursday; everything else derives
-        from that.
-
-        The first week is 1; Monday is 1 ... Sunday is 7.
-
-        ISO calendar algorithm taken from
-        http://www.phys.uu.nl/~vgent/calendar/isocalendar.htm
-        (used with permission)
-        """
-        year = self._year
-        week1monday = _isoweek1monday(year)
-        today = _ymd2ord(self._year, self._month, self._day)
-        # Internally, week and day have origin 0
-        week, day = divmod(today - week1monday, 7)
-        if week < 0:
-            year -= 1
-            week1monday = _isoweek1monday(year)
-            week, day = divmod(today - week1monday, 7)
-        elif week >= 52:
-            if today >= _isoweek1monday(year + 1):
-                year += 1
-                week = 0
-        return _IsoCalendarDate(year, week + 1, day + 1)
-
     # Pickle support.
 
     def _getstate(self, protocol=3):
@@ -1180,7 +1508,7 @@ class _DateTime:
             return (basestate, self._tzinfo)
 
     def __setstate(self, string, tzinfo):
-        if tzinfo is not None and not isinstance(tzinfo, _tzinfo_class):
+        if tzinfo is not None and not isinstance(tzinfo, _tzinfo):
             raise TypeError("bad tzinfo state arg")
         (
             yhi,
@@ -1228,4 +1556,4 @@ def _isoweek1monday(year):
     return week1monday
 
 
-_EPOCH = _DateTime(1970, 1, 1, tzinfo=timezone.utc)
+_EPOCH = _DateTime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
