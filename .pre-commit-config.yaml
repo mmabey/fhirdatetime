@@ -3,17 +3,16 @@ exclude: >
     \.egg-info
   )$
 repos:
-- repo: https://github.com/asottile/seed-isort-config
-  rev: v2.2.0
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.14.0
   hooks:
-  - id: seed-isort-config
-    name: Finding third party Python imports
-- repo: https://github.com/pre-commit/mirrors-isort
-  rev: v5.8.0
-  hooks:
-  - id: isort
+  - id: ruff
     name: Reorder Python imports
-    additional_dependencies: ['toml']
+    # Scoped to import-sorting (I) only, matching the isort hook this
+    # replaced. The full [tool.ruff.lint] extend-select in pyproject.toml
+    # is the target config for TODO.md section 2, not yet enforced here —
+    # 207 pre-existing findings in __init__.py/tests/docs need fixing first.
+    args: ["--select=I", "--fix"]
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v3.4.0
   hooks:
