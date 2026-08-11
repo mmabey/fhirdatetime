@@ -32,9 +32,9 @@ False
 from __future__ import annotations
 
 import re
-from datetime import MAXYEAR, MINYEAR, date, datetime, timezone, tzinfo as tzinfo_
+from datetime import MAXYEAR, MINYEAR, UTC, date, datetime, tzinfo as tzinfo_
 from operator import itemgetter
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self, TypeAlias, overload
 
 from ._datetime import (
     _check_int_field,
@@ -72,28 +72,32 @@ _MAX_MINUTE = 59
 _MAX_SECOND = 59
 _MAX_MICROSECOND = 999_999
 
+# A date/time field that may be unpopulated, cascading down from month
+# through tzinfo (second/microsecond/fold are never unpopulated — they
+# default to 0, not None).
+_Field: TypeAlias = int | None
+# What `_check_datetime_fields` validates and returns, in
+# (year, month, day, hour, minute, second, microsecond, tzinfo, fold) order.
+DateTimeFields: TypeAlias = tuple[int, _Field, _Field, _Field, _Field, int, int, tzinfo_ | None, int]
+# The `year` positional accepted by `__new__`/`__init__`: an explicit year,
+# an ISO string to parse, or an existing date/datetime to copy from.
+YearArg: TypeAlias = int | str | datetime | date
+# What `sort_key()`'s returned callable produces: (year, month, day, hour,
+# minute, second, microsecond), with -1 standing in for unpopulated fields.
+SortableFields: TypeAlias = tuple[int, ...]
+
 
 def _check_datetime_fields(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917
     year: int,
-    month: int | None,
-    day: int | None,
-    hour: int | None,
-    minute: int | None,
-    second: int | None,
-    microsecond: int | None,
+    month: _Field,
+    day: _Field,
+    hour: _Field,
+    minute: _Field,
+    second: int,
+    microsecond: int,
     tzinfo: tzinfo_ | None,
     fold: int,
-) -> tuple[
-    int,
-    int | None,
-    int | None,
-    int | None,
-    int | None,
-    int | None,
-    int | None,
-    tzinfo_ | None,
-    int,
-]:
+) -> DateTimeFields:
     # Customized from version in datetime. Kept as a single function (rather
     # than split per field) because FHIR's cascading precision rules mean
     # each check depends on the result of the one before it (e.g. day
@@ -156,18 +160,16 @@ def _check_datetime_fields(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917
         raise ValueError(msg)
 
     # Second checks
-    if second is not None:
-        second = _check_int_field(second)
-        if not 0 <= second <= _MAX_SECOND:
-            msg = f"second must be in 0..{_MAX_SECOND}"
-            raise ValueError(msg, second)
+    second = _check_int_field(second)
+    if not 0 <= second <= _MAX_SECOND:
+        msg = f"second must be in 0..{_MAX_SECOND}"
+        raise ValueError(msg, second)
 
     # Microsecond, fold checks
-    if microsecond is not None:
-        microsecond = _check_int_field(microsecond)
-        if not 0 <= microsecond <= _MAX_MICROSECOND:
-            msg = f"microsecond must be in 0..{_MAX_MICROSECOND}"
-            raise ValueError(msg, microsecond)
+    microsecond = _check_int_field(microsecond)
+    if not 0 <= microsecond <= _MAX_MICROSECOND:
+        msg = f"microsecond must be in 0..{_MAX_MICROSECOND}"
+        raise ValueError(msg, microsecond)
     if fold not in (0, 1):
         msg = "fold must be either 0 or 1"
         raise ValueError(msg, fold)
@@ -178,14 +180,14 @@ def _check_datetime_fields(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917
 class FhirDateTime(_DateTime, datetime):
     """Type for representing datetime values from FHIR data."""
 
-    def __new__(cls, year: int | str | datetime | date, *_: object, **__: object) -> FhirDateTime:  # noqa: PYI034
+    def __new__(cls, year: YearArg, *_: object, **__: object) -> Self:
         """Start creating FhirDateTime instance."""
         # Give datetime.__new__() an arbitrary date to pass its value checks
         return super().__new__(cls, 1, 1, 1)
 
     def __init__(  # noqa: PLR0913, PLR0917
         self,
-        year: int | str | datetime | date,
+        year: YearArg,
         month: int | None = None,
         day: int | None = None,
         hour: int | None = None,
@@ -300,11 +302,18 @@ class FhirDateTime(_DateTime, datetime):
     @classmethod
     def fromisoformat(cls, date_string: str) -> FhirDateTime:
         """Construct a FhirDateTime from the output of FhirDateTime.isoformat()."""
-        # Check for shorter formats first
-        for pat in (_y_pat, _ym_pat, _ymd_pat):
-            m = re.match(pat, date_string)
-            if m:
-                return FhirDateTime(*[int(p) for p in m.groups()])
+        # Check for shorter formats first. Handled one pattern at a time
+        # (rather than looping and unpacking `*groups`) so each call site
+        # has a fixed, statically-checkable arity.
+        m = re.match(_y_pat, date_string)
+        if m:
+            return FhirDateTime(int(m[1]))
+        m = re.match(_ym_pat, date_string)
+        if m:
+            return FhirDateTime(int(m[1]), int(m[2]))
+        m = re.match(_ymd_pat, date_string)
+        if m:
+            return FhirDateTime(int(m[1]), int(m[2]), int(m[3]))
 
         try:
             return super().fromisoformat(date_string)
@@ -314,7 +323,7 @@ class FhirDateTime(_DateTime, datetime):
         for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
             # These formats need to have the UTC timezone inserted after creation
             try:
-                return cls.strptime(date_string, fmt).replace(tzinfo=timezone.utc)
+                return cls.strptime(date_string, fmt).replace(tzinfo=UTC)
             except ValueError:
                 pass
 
@@ -332,7 +341,7 @@ class FhirDateTime(_DateTime, datetime):
         dt._replace_with(other)
         return dt
 
-    def _replace_with(self, other: FhirDateTime | datetime | date) -> None:
+    def _replace_with(self, other: ComparableTypes) -> None:
         if not isinstance(other, (FhirDateTime, date, datetime)):
             msg = f"Can only create FhirDateTime from date, datetime types, got {type(other).__name__}"
             raise TypeError(msg)
@@ -355,7 +364,15 @@ class FhirDateTime(_DateTime, datetime):
             self._fold = 0
 
     @staticmethod
-    def sort_key(attr_path: str | None = None) -> Callable[[object], tuple[int, ...]]:
+    @overload
+    def sort_key(attr_path: None = None) -> Callable[[FhirDateTime], SortableFields]: ...
+    @staticmethod
+    @overload
+    def sort_key(attr_path: str) -> Callable[[object], SortableFields]: ...
+    @staticmethod
+    def sort_key(
+        attr_path: str | None = None,
+    ) -> Callable[[FhirDateTime], SortableFields] | Callable[[object], SortableFields]:
         """Create a function appropriate for use as a sorting key.
 
         .. important:: When there is ambiguity due to one :class:`FhirDateTime`
@@ -409,7 +426,7 @@ class FhirDateTime(_DateTime, datetime):
         if attr_path is None:
             return i
 
-        def caller(obj: object) -> tuple[int, ...]:
+        def caller(obj: object) -> SortableFields:
             for attr in attr_path.split("."):
                 obj = getattr(obj, attr)
             if not isinstance(obj, FhirDateTime):
@@ -419,21 +436,29 @@ class FhirDateTime(_DateTime, datetime):
 
         return caller
 
-    def _cmp(self, other: ComparableTypes, *_: object) -> int:
+    def _cmp(self, other: ComparableTypes, allow_mixed: bool = False) -> int:
+        # allow_mixed is accepted (but unused) purely to match the base class's
+        # signature (_DateTime._cmp) for Liskov substitutability; our
+        # naive/aware handling doesn't need the distinction it exists for
+        # since we already treat any unpopulated field as an ambiguous match.
+        del allow_mixed
         if not isinstance(other, (FhirDateTime, datetime, date)):
             msg = f"Cannot compare FhirDateTime and {type(other).__name__}"
             raise TypeError(msg)
 
-        mytz = self.tzinfo
-        ottz = getattr(other, "tzinfo", None)
-
-        if mytz is ottz or None in {mytz, ottz}:
+        if not isinstance(other, (FhirDateTime, datetime)):
+            # A plain `date` has no tzinfo, so it can never disagree with
+            # self on UTC offset.
             base_compare = True
         else:
-            myoff = self.utcoffset()
-            # other must have a utcoffset value here because ottz must be non-None
-            otoff = other.utcoffset()
-            base_compare = myoff == otoff
+            mytz = self.tzinfo
+            ottz = other.tzinfo
+            if mytz is ottz or None in {mytz, ottz}:
+                base_compare = True
+            else:
+                myoff = self.utcoffset()
+                otoff = other.utcoffset()
+                base_compare = myoff == otoff
 
         if base_compare:
             for f in DATE_FIELDS + TIME_FIELDS:
@@ -454,10 +479,19 @@ class FhirDateTime(_DateTime, datetime):
             return -1
         return (diff and 1) or 0
 
-    def __eq__(self, other: ComparableTypes) -> bool:
+    def __eq__(self, other: object) -> bool:
+        # Unlike ordering comparisons, == must accept arbitrary objects and
+        # defer via NotImplemented rather than raise — otherwise routine
+        # operations like `x in some_dict`/`x in some_set` crash instead of
+        # just returning False when `x` happens to collide with a
+        # FhirDateTime's hash bucket.
+        if not isinstance(other, (FhirDateTime, datetime, date)):
+            return NotImplemented
         return self._cmp(other) == 0
 
-    def __ne__(self, other: ComparableTypes) -> bool:
+    def __ne__(self, other: object) -> bool:
+        if not isinstance(other, (FhirDateTime, datetime, date)):
+            return NotImplemented
         return self._cmp(other) != 0
 
     def __le__(self, other: ComparableTypes) -> bool:

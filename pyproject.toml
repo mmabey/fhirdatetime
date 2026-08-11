@@ -5,14 +5,12 @@ description = "A datetime-compatible class for FHIR date/datetime values."
 authors = [{ name = "Mike Mabey", email = "email@mikemabey.com" }]
 license = "MIT"
 readme = "README.rst"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -36,6 +34,7 @@ dev = [
     "sphinx>=7.0",
     "sphinx-rtd-theme>=2.0",
     "coveralls>=3.0.1",
+    "ty>=0.0.70",
 ]
 
 [tool.ruff]
@@ -112,6 +111,11 @@ known-third-party = ["pytest", "sphinx_rtd_theme"]
 # DTZ: interop tests deliberately exercise naive-vs-aware datetime comparisons.
 # PLR2004: literal expected values in assertions are normal test style.
 "tests/**" = ["S101", "S311", "DTZ", "PLR2004"]
+
+[tool.ty.src]
+# Same rationale as [tool.ruff] extend-exclude: vendored, unannotated
+# CPython datetime internals aren't worth chasing type errors in.
+exclude = ["fhirdatetime/_datetime.py"]
 
 [tool.uv.build-backend]
 module-root = ""

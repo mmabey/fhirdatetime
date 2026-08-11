@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 import time as _time
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -67,91 +67,91 @@ def make_and_assert(params: dict) -> None:
         assert getattr(dt, p) == params.get(p)
 
 
-cases = {
-    "success": [
-        {"year": 2011},
-        {"year": 1909, "month": 9},
-        {"year": 30, "month": 2, "day": 28},
-        {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54},
-        {
-            "year": 2030,
-            "month": 2,
-            "day": 28,
-            "hour": 23,
-            "minute": 53,
-            "second": 6,
-            "microsecond": 999_999,  # Max value for microsecond
-        },
-        {"year": datetime(2011, 9, 12, 14, 53)},
-        {
-            "year": datetime(
-                2020,
-                11,
-                1,
-                23,
-                53,
-                tzinfo=timezone(timedelta(hours=-6)),
-                fold=1,
-            ),
-        },
-        {"year": date(2011, 9, 12)},
-        {"year": "2011"},
-        {"year": "2011-09"},
-        {"year": "2011-09-12"},
-        {"year": "2011-09-12T12:14"},
-        {"year": "2011-09-12T12:14:31-06:00"},
-        {"year": "2016-01-26T21:58:41.000Z"},
-    ],
-    "fail_type": [
-        {"year": None},
-        {"year": time(12, 15)},
-    ],
-    "fail_value": [
-        {"year": 19999},  # Year out of range
-        {"year": 2030, "month": 2, "day": 28, "hour": 14},  # hour with no minute
-        {"year": 2030, "month": 20, "day": 28},  # month out of range
-        {"year": 2030, "month": 2, "day": 30},  # day out of range
-        {  # hour out of range
-            "year": 2030,
-            "month": 2,
-            "day": 28,
-            "hour": 24,
-            "minute": 0,
-        },
-        {  # minute out of range
-            "year": 2030,
-            "month": 2,
-            "day": 28,
-            "hour": 23,
-            "minute": 60,
-        },
-        {  # second out of range
-            "year": 2030,
-            "month": 2,
-            "day": 28,
-            "hour": 23,
-            "minute": 0,
-            "second": 60,
-        },
-        {  # microsecond out of range
-            "year": 2030,
-            "month": 2,
-            "day": 28,
-            "hour": 23,
-            "minute": 0,
-            "second": 6,
-            "microsecond": 1_999_999,
-        },
-        {"year": "2011-09-1212:14"},  # Missing spacer, fromisoformat fails
-        {"year": 2021, "day": 13},  # No month
-        {"year": 2021, "month": 2, "hour": 23, "minute": 59},  # No day
-        {"year": 2021, "month": 2, "day": 28, "minute": 59},  # No hour
-        {"year": 2021, "month": 2, "day": 28, "hour": 23},  # No Minute
-        {"year": 2021, "month": 2, "day": 28, "tzinfo": timezone.utc},  # No time
-    ],
-}
+success_cases: list[dict] = [
+    {"year": 2011},
+    {"year": 1909, "month": 9},
+    {"year": 30, "month": 2, "day": 28},
+    {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54},
+    {
+        "year": 2030,
+        "month": 2,
+        "day": 28,
+        "hour": 23,
+        "minute": 53,
+        "second": 6,
+        "microsecond": 999_999,  # Max value for microsecond
+    },
+    {"year": datetime(2011, 9, 12, 14, 53)},
+    {
+        "year": datetime(
+            2020,
+            11,
+            1,
+            23,
+            53,
+            tzinfo=timezone(timedelta(hours=-6)),
+            fold=1,
+        ),
+    },
+    {"year": date(2011, 9, 12)},
+    {"year": "2011"},
+    {"year": "2011-09"},
+    {"year": "2011-09-12"},
+    {"year": "2011-09-12T12:14"},
+    {"year": "2011-09-12T12:14:31-06:00"},
+    {"year": "2016-01-26T21:58:41.000Z"},
+]
 
-cases["success"].extend(
+fail_type_cases: list[dict] = [
+    {"year": None},
+    {"year": time(12, 15)},
+]
+
+fail_value_cases: list[dict] = [
+    {"year": 19999},  # Year out of range
+    {"year": 2030, "month": 2, "day": 28, "hour": 14},  # hour with no minute
+    {"year": 2030, "month": 20, "day": 28},  # month out of range
+    {"year": 2030, "month": 2, "day": 30},  # day out of range
+    {  # hour out of range
+        "year": 2030,
+        "month": 2,
+        "day": 28,
+        "hour": 24,
+        "minute": 0,
+    },
+    {  # minute out of range
+        "year": 2030,
+        "month": 2,
+        "day": 28,
+        "hour": 23,
+        "minute": 60,
+    },
+    {  # second out of range
+        "year": 2030,
+        "month": 2,
+        "day": 28,
+        "hour": 23,
+        "minute": 0,
+        "second": 60,
+    },
+    {  # microsecond out of range
+        "year": 2030,
+        "month": 2,
+        "day": 28,
+        "hour": 23,
+        "minute": 0,
+        "second": 6,
+        "microsecond": 1_999_999,
+    },
+    {"year": "2011-09-1212:14"},  # Missing spacer, fromisoformat fails
+    {"year": 2021, "day": 13},  # No month
+    {"year": 2021, "month": 2, "hour": 23, "minute": 59},  # No day
+    {"year": 2021, "month": 2, "day": 28, "minute": 59},  # No hour
+    {"year": 2021, "month": 2, "day": 28, "hour": 23},  # No Minute
+    {"year": 2021, "month": 2, "day": 28, "tzinfo": UTC},  # No time
+]
+
+success_cases.extend(
     [
         {"year": "2011-09-12T12:14:31-06:00:05"},
         {
@@ -184,7 +184,7 @@ cases["success"].extend(
     "param",
     [
         date.today().isoformat(),
-        datetime.utcnow().isoformat(),
+        datetime.now(UTC).isoformat(),
         {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54},
         "2011-09-12T12:14:31-06:00",
     ],
@@ -192,23 +192,25 @@ cases["success"].extend(
 @pytest.mark.xfail(raises=TypeError, strict=True)
 def test_from_native_xfail(param: str | dict) -> None:
     """Test creation of a FhirDateTime from a native object, should fail."""
-    FhirDateTime.from_native(param)
+    # param is deliberately never a `date`/`datetime` here -- that's the point
+    # of this test (from_native must reject these types).
+    FhirDateTime.from_native(param)  # ty: ignore[invalid-argument-type]
 
 
-@pytest.mark.parametrize("params", cases["success"])
+@pytest.mark.parametrize("params", success_cases)
 def test_creation(params: dict) -> None:
     """Test creation of a FhirDateTime object with given params."""
     make_and_assert(params)
 
 
-@pytest.mark.parametrize("params", cases["fail_type"])
+@pytest.mark.parametrize("params", fail_type_cases)
 @pytest.mark.xfail(raises=TypeError, strict=True)
 def test_bad_creation_type(params: dict) -> None:
     """Test creation of a FhirDateTime object that should fail with TypeError."""
     make_and_assert(params)
 
 
-@pytest.mark.parametrize("params", cases["fail_value"])
+@pytest.mark.parametrize("params", fail_value_cases)
 @pytest.mark.xfail(raises=ValueError, strict=True)
 def test_bad_creation_value(params: dict) -> None:
     """Test creation of a FhirDateTime object that should fail with ValueError."""
@@ -217,7 +219,7 @@ def test_bad_creation_value(params: dict) -> None:
 
 def test_getitem() -> None:
     """Test accessing an invalid index raises an error."""
-    d = FhirDateTime(**random.choice(cases["success"]))
+    d = FhirDateTime(**random.choice(success_cases))
     min_ = 0
     max_ = 6
     for _ in range(100):
@@ -229,7 +231,7 @@ def test_getitem() -> None:
 
 def test_other_methods() -> None:
     """Test other methods, mostly for coverage."""
-    dt = FhirDateTime(2020, 5, 4, 13, 42, 54, 295815, tzinfo=timezone.utc)
+    dt = FhirDateTime(2020, 5, 4, 13, 42, 54, 295815, tzinfo=UTC)
     assert dt.date() == date(2020, 5, 4)
     assert dt.time() == time(13, 42, 54, 295815)
     assert (dt - timedelta(5)) == FhirDateTime(
@@ -240,7 +242,7 @@ def test_other_methods() -> None:
         42,
         54,
         295815,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
 
     dt = dt.replace(tzinfo=timezone(timedelta(hours=3)))
