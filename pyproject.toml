@@ -40,7 +40,7 @@ dev = [
 
 [tool.ruff]
 line-length = 120
-extend-exclude = ["fhirdatetime/_datetime.py"]
+extend-exclude = ["fhirdatetime/_datetime.py", "docs"]
 
 [tool.ruff.lint]
 extend-select = [
@@ -85,13 +85,33 @@ extend-select = [
     "UP",
     "W",
 ]
+# Rules ruff's own docs list as conflicting with the formatter:
+# https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+ignore = [
+    "COM812",
+    "COM819",
+    "E111",
+    "E114",
+    "E117",
+    "E101",
+    "ISC001",
+    "ISC002",
+    "Q000",
+    "Q001",
+    "Q002",
+    "Q003",
+    "W191",
+]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true
 known-third-party = ["pytest", "sphinx_rtd_theme"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]
+# S311: test data randomization, not cryptography.
+# DTZ: interop tests deliberately exercise naive-vs-aware datetime comparisons.
+# PLR2004: literal expected values in assertions are normal test style.
+"tests/**" = ["S101", "S311", "DTZ", "PLR2004"]
 
 [tool.uv.build-backend]
 module-root = ""

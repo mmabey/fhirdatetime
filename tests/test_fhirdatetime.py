@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
 """Test parameters of creating FhirDateTime objects."""
 
+from __future__ import annotations
+
 import random
-import sys
 import time as _time
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Union
+from pathlib import Path
 
 import pytest
 
@@ -14,19 +14,20 @@ from fhirdatetime import FhirDateTime, __version__
 random.seed()
 
 
-def test_version():
+def test_version() -> None:
     """Check library version is what it should be."""
     ver = "0.1.0b8"
     assert __version__ == ver
-    with open("pyproject.toml") as proj:
+    with Path("pyproject.toml").open() as proj:
         for line in proj:
             if line.startswith("version = "):
                 assert line == f'version = "{ver}"\n'
                 return
-    raise ValueError("Unable to find version string in pyproject.toml")
+    msg = "Unable to find version string in pyproject.toml"
+    raise ValueError(msg)
 
 
-def compare_native(dt: FhirDateTime, other: Union[date, datetime]):
+def compare_native(dt: FhirDateTime, other: date | datetime) -> None:
     """Check values when obj is created from a native type."""
     assert dt.year == other.year
     assert dt.month == other.month
@@ -41,11 +42,12 @@ def compare_native(dt: FhirDateTime, other: Union[date, datetime]):
         assert dt.fold == other.fold
 
 
-def make_and_assert(params: dict):
+def make_and_assert(params: dict) -> None:
     """Create and run tests on a FhirDateTime object."""
     dt = FhirDateTime(**params)
     if isinstance(params["year"], (date, datetime)):
-        return compare_native(dt, params["year"])
+        compare_native(dt, params["year"])
+        return
 
     if isinstance(params["year"], str):
         # There's not really a good way to test string parsing without writing a second
@@ -83,8 +85,14 @@ cases = {
         {"year": datetime(2011, 9, 12, 14, 53)},
         {
             "year": datetime(
-                2020, 11, 1, 23, 53, tzinfo=timezone(timedelta(hours=-6)), fold=1
-            )
+                2020,
+                11,
+                1,
+                23,
+                53,
+                tzinfo=timezone(timedelta(hours=-6)),
+                fold=1,
+            ),
         },
         {"year": date(2011, 9, 12)},
         {"year": "2011"},
@@ -143,73 +151,71 @@ cases = {
     ],
 }
 
-# These tests only work on 3.7+
-if sys.version_info.major == 3 and sys.version_info.minor > 6:
-    cases["success"].extend(
-        [
-            {"year": "2011-09-12T12:14:31-06:00:05"},
-            {
-                "year": datetime(
-                    2011,
-                    9,
-                    12,
-                    12,
-                    14,
-                    31,
-                    tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
-                ).isoformat()
-            },
-            {
-                "year": datetime(
-                    2011,
-                    9,
-                    12,
-                    12,
-                    14,
-                    31,
-                    tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
-                ).isoformat(timespec="milliseconds")
-            },
-        ]
-    )
+cases["success"].extend(
+    [
+        {"year": "2011-09-12T12:14:31-06:00:05"},
+        {
+            "year": datetime(
+                2011,
+                9,
+                12,
+                12,
+                14,
+                31,
+                tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
+            ).isoformat(),
+        },
+        {
+            "year": datetime(
+                2011,
+                9,
+                12,
+                12,
+                14,
+                31,
+                tzinfo=timezone(timedelta(hours=-6, seconds=5, microseconds=4321)),
+            ).isoformat(timespec="milliseconds"),
+        },
+    ],
+)
 
 
 @pytest.mark.parametrize(
     "param",
-    (
+    [
         date.today().isoformat(),
         datetime.utcnow().isoformat(),
         {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54},
         "2011-09-12T12:14:31-06:00",
-    ),
+    ],
 )
 @pytest.mark.xfail(raises=TypeError, strict=True)
-def test_from_native_xfail(param):
+def test_from_native_xfail(param: str | dict) -> None:
     """Test creation of a FhirDateTime from a native object, should fail."""
     FhirDateTime.from_native(param)
 
 
 @pytest.mark.parametrize("params", cases["success"])
-def test_creation(params: dict):
+def test_creation(params: dict) -> None:
     """Test creation of a FhirDateTime object with given params."""
     make_and_assert(params)
 
 
 @pytest.mark.parametrize("params", cases["fail_type"])
 @pytest.mark.xfail(raises=TypeError, strict=True)
-def test_bad_creation_type(params: dict):
+def test_bad_creation_type(params: dict) -> None:
     """Test creation of a FhirDateTime object that should fail with TypeError."""
     make_and_assert(params)
 
 
 @pytest.mark.parametrize("params", cases["fail_value"])
 @pytest.mark.xfail(raises=ValueError, strict=True)
-def test_bad_creation_value(params: dict):
+def test_bad_creation_value(params: dict) -> None:
     """Test creation of a FhirDateTime object that should fail with ValueError."""
     make_and_assert(params)
 
 
-def test_getitem():
+def test_getitem() -> None:
     """Test accessing an invalid index raises an error."""
     d = FhirDateTime(**random.choice(cases["success"]))
     min_ = 0
@@ -221,13 +227,20 @@ def test_getitem():
             _ = d[random.randrange(max_ + 1, 2000)]
 
 
-def test_other_methods():
+def test_other_methods() -> None:
     """Test other methods, mostly for coverage."""
     dt = FhirDateTime(2020, 5, 4, 13, 42, 54, 295815, tzinfo=timezone.utc)
     assert dt.date() == date(2020, 5, 4)
     assert dt.time() == time(13, 42, 54, 295815)
     assert (dt - timedelta(5)) == FhirDateTime(
-        2020, 4, 29, 13, 42, 54, 295815, tzinfo=timezone.utc
+        2020,
+        4,
+        29,
+        13,
+        42,
+        54,
+        295815,
+        tzinfo=timezone.utc,
     )
 
     dt = dt.replace(tzinfo=timezone(timedelta(hours=3)))
@@ -236,9 +249,11 @@ def test_other_methods():
 
     assert dt.isoformat() == "2020-05-04T13:42:54.295815+03:00"
     assert dt.isoformat(timespec="milliseconds") == "2020-05-04T13:42:54.295+03:00"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unknown timespec value"):
         dt.isoformat(timespec="doesn't exist")
-    with pytest.raises(ValueError):
+    # No match=: the message comes from stdlib strptime's fallback path and its
+    # exact text is Python-version-dependent (see TODO.md's 3.14 strptime note).
+    with pytest.raises(ValueError):  # noqa: PT011
         FhirDateTime.fromisoformat("2020*02*13")
 
     assert dt.weekday() == 0
@@ -246,7 +261,14 @@ def test_other_methods():
     assert dt.isocalendar() == (2020, 19, 1)
 
     assert dt.asdatetime == datetime(
-        2020, 5, 4, 13, 42, 54, 295815, timezone(timedelta(hours=3))
+        2020,
+        5,
+        4,
+        13,
+        42,
+        54,
+        295815,
+        timezone(timedelta(hours=3)),
     )
     assert dt.timestamp() == 1588588974.295815
 

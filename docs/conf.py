@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-import sphinx_rtd_theme
 
 # -- Project information -----------------------------------------------------
 

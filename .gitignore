@@ -2,8 +2,8 @@
 .vscode
 */__pycache__
 .pytest_cache
+.ruff_cache
 dist
 docs/_build/
-.tox
 .coverage
 .venv
