@@ -32,7 +32,7 @@ False
 from __future__ import annotations
 
 import re
-from datetime import MAXYEAR, MINYEAR, UTC, date, datetime, tzinfo as tzinfo_
+from datetime import MAXYEAR, MINYEAR, UTC, date, datetime, timedelta, tzinfo as tzinfo_
 from operator import itemgetter
 from typing import TYPE_CHECKING, Self, SupportsIndex, TypeAlias, overload
 
@@ -244,6 +244,17 @@ class FhirDate(_Date, date):
         d._replace_with(other)
         return d
 
+    def __reduce_ex__(self, protocol: SupportsIndex) -> tuple[type[Self], tuple[str]]:
+        """Support pickling and :func:`copy.deepcopy`.
+
+        Same rationale as :meth:`FhirDateTime.__reduce_ex__`: the inherited
+        ``_Date.__reduce_ex__`` produces a `bytes` state blob shaped for
+        `datetime.date.__setstate__`, which this class's `__init__` doesn't
+        understand. Round-trip through `isoformat` instead.
+        """
+        del protocol
+        return self.__class__, (self.isoformat(),)
+
     def _replace_with(self, other: ComparableDateTypes) -> None:
         if not isinstance(other, (FhirDate, date)):
             msg = f"Can only create FhirDate from date types, got {type(other).__name__}"
@@ -251,6 +262,65 @@ class FhirDate(_Date, date):
         self._year = other.year
         self._month = other.month
         self._day = other.day
+
+    def _require_full_precision(self) -> None:
+        """Raise a clear error if this instance is missing fields arithmetic needs.
+
+        Without this, `+`/`-` fall through to the vendored `_Date`/
+        `_DateTime` arithmetic, which calls `toordinal()` (and, for
+        `FhirDateTime`, builds a `timedelta` from `_hour`/`_minute`
+        directly) assuming every field is a real `int` -- on a
+        partial-precision instance those are `None`, so the failure
+        surfaces as a confusing low-level `TypeError` from deep inside
+        `toordinal`/`timedelta` instead of an actionable message.
+        Overridden by :class:`FhirDateTime` to also require `hour`/`minute`.
+        """
+        if None in (self._month, self._day):
+            msg = f"Cannot perform arithmetic on a {self.__class__.__name__} with unpopulated month/day"
+            raise TypeError(msg)
+
+    def __add__(self, other: timedelta) -> Self:
+        self._require_full_precision()
+        return super().__add__(other)
+
+    __radd__ = __add__
+
+    @overload
+    def __sub__(self, other: timedelta) -> Self: ...
+    @overload
+    def __sub__(self, other: ComparableDateTypes) -> timedelta: ...
+    def __sub__(  # ty: ignore[invalid-method-override]
+        self, other: ComparableDateTypes | timedelta
+    ) -> Self | timedelta:
+        # Real date/datetime.__sub__ supports both overloads at runtime (a
+        # timedelta arg returns Self, a date/datetime arg returns timedelta)
+        # -- typeshed's stub for date.__sub__ only declares the first, so ty
+        # sees this union return as narrower-than-required. Both @overload
+        # stubs above are the accurate contract; this suppression is only
+        # for the combined implementation signature typeshed can't express.
+        self._require_full_precision()
+        if isinstance(other, FhirDate):
+            other._require_full_precision()
+        return super().__sub__(other)
+
+    def __rsub__(self, other: date) -> timedelta:
+        """Support ``real_date - fhir_date`` returning a correct timedelta.
+
+        Without this, ``real_date - fhir_date`` is handled entirely by the
+        real ``date.__sub__`` (a C-level fast path never even reaches this
+        class): CPython's C `date.__sub__` reads the *other* operand's
+        year/month/day directly off its C struct once it confirms the
+        operand is date-like (`PyDate_Check`), bypassing the Python-level
+        property overrides entirely. Since this class's real C struct is
+        permanently frozen at the `__new__` placeholder `(1, 1, 1)`, that
+        silently computes a *wrong* answer using the placeholder instead of
+        this instance's actual (possibly partial-precision) values -- not
+        an error, a wrong one. Defining `__rsub__` here (which `date`
+        itself never defines) makes Python's "prefer the subclass's
+        reflected method" rule route through this class's own (correct)
+        `__sub__` instead.
+        """
+        return -(self - other)
 
     @staticmethod
     @overload
@@ -394,6 +464,14 @@ class FhirDate(_Date, date):
             # Assume we're accessing for sorting purposes and empty values come first
             val = -1
         return val
+
+
+# Without these, `FhirDate.min`/`.max` would resolve via inheritance to the
+# vendored `_Date.min`/`.max` set at the bottom of `_datetime.py` -- real
+# `_Date` instances, not `FhirDate` ones. That's a leaked private type:
+# `isinstance(FhirDate.min, FhirDate)` would be `False`.
+FhirDate.min = FhirDate(1, 1, 1)
+FhirDate.max = FhirDate(9999, 12, 31)
 
 
 class FhirDateTime(FhirDate, _DateTime, datetime):
@@ -595,6 +673,17 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
             self._tzinfo = None
             self._fold = 0
 
+    def _require_full_precision(self) -> None:
+        """Extend :meth:`FhirDate._require_full_precision` to also require hour/minute.
+
+        `second`/`microsecond` never need checking -- they default to `0`,
+        never `None`.
+        """
+        super()._require_full_precision()
+        if None in (self._hour, self._minute):
+            msg = f"Cannot perform arithmetic on a {self.__class__.__name__} with unpopulated hour/minute"
+            raise TypeError(msg)
+
     @staticmethod
     @overload
     def sort_key(attr_path: None = None) -> Callable[[FhirDateTime], SortableFields]: ...
@@ -717,7 +806,7 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
         diff = self - other
         if diff.days < 0:
             return -1
-        return (diff and 1) or 0
+        return 1 if diff else 0
 
     def __str__(self) -> str:
         """Convert to string, for str().
@@ -776,6 +865,12 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
             val = -1
         return val
 
+
+# Same rationale as FhirDate.min/.max above: without these, FhirDateTime.min
+# would resolve via inheritance to FhirDate.min (a FhirDate, not even a
+# FhirDateTime) rather than the vendored _DateTime.min/.max.
+FhirDateTime.min = FhirDateTime(1, 1, 1, 0, 0)
+FhirDateTime.max = FhirDateTime(9999, 12, 31, 23, 59, 59, 999999)
 
 # Defined after both classes since `X | Y` is a runtime expression, not a
 # deferred annotation (`from __future__ import annotations` only defers

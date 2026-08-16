@@ -186,13 +186,63 @@ def test_add_and_radd() -> None:
 def test_add_incompatible_type() -> None:
     """`+` with a non-timedelta right-hand side defers via NotImplemented."""
     with pytest.raises(TypeError):
-        FhirDateTime(2020, 5, 4) + "not a timedelta"
+        FhirDateTime(2020, 5, 4) + "not a timedelta"  # ty: ignore[unsupported-operator]
 
 
 def test_sub_incompatible_type() -> None:
     """`-` with a type that's neither a timedelta nor a datetime-like raises."""
     with pytest.raises(TypeError):
-        FhirDateTime(2020, 5, 4) - "not a timedelta or datetime"
+        FhirDateTime(2020, 5, 4) - "not a timedelta or datetime"  # ty: ignore[unsupported-operator]
+
+
+@pytest.mark.parametrize(
+    "dt",
+    [
+        FhirDateTime(2021),
+        FhirDateTime(2021, 4),
+        FhirDateTime(2021, 4, 12),  # date complete, but no hour/minute
+    ],
+)
+def test_arithmetic_on_partial_precision_raises(dt: FhirDateTime) -> None:
+    """+/- on a partial-precision FhirDateTime raises a clear error.
+
+    Without the `_require_full_precision` guard, this used to surface as a
+    confusing internal `TypeError` from deep inside `toordinal`/`timedelta`
+    (missing fields are `None`, not `0`) instead of an actionable message.
+    """
+    with pytest.raises(TypeError, match="unpopulated"):
+        _ = dt + timedelta(days=1)
+    with pytest.raises(TypeError, match="unpopulated"):
+        _ = dt - FhirDateTime(2020, 5, 4, 12, 0)
+    with pytest.raises(TypeError, match="unpopulated"):
+        _ = FhirDateTime(2020, 5, 4, 12, 0) - dt
+
+
+def test_min_max_are_fhirdatetime_instances() -> None:
+    """FhirDateTime.min/.max must be FhirDateTime instances.
+
+    Same rationale as `test_min_max_are_fhirdate_instances` in
+    test_fhirdate.py -- without an explicit override, `.min`/`.max` would
+    resolve via inheritance first to `FhirDate.min`/`.max`, then to the
+    vendored `_DateTime.min`/`.max`, neither of which is a FhirDateTime.
+    """
+    assert isinstance(FhirDateTime.min, FhirDateTime)
+    assert isinstance(FhirDateTime.max, FhirDateTime)
+    assert FhirDateTime.min == FhirDateTime(1, 1, 1, 0, 0)
+    assert FhirDateTime.max == FhirDateTime(9999, 12, 31, 23, 59, 59, 999999)
+
+
+def test_rsub_real_datetime_minus_fhir_datetime() -> None:
+    """`real_datetime - fhir_datetime` must go through FhirDateTime's own __sub__.
+
+    Same rationale as `test_rsub_real_date_minus_fhir_date` in
+    test_fhirdate.py: without `__rsub__`, `datetime.__sub__`'s C
+    implementation reads the frozen `(1, 1, 1)` placeholder struct instead
+    of this instance's real values, silently computing a wrong timedelta.
+    """
+    real = datetime(2020, 5, 10, 12, 0)
+    fhir = FhirDateTime(2020, 5, 4, 6, 0)
+    assert real - fhir == timedelta(days=6, hours=6)
 
 
 def test_sub_equal_offset_different_tzinfo_objects() -> None:

@@ -1,8 +1,10 @@
 """Test parameters of creating FhirDate objects."""
 
+import copy
+import pickle
 import random
 import time as _time
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 
 import pytest
 
@@ -129,3 +131,92 @@ def test_other_methods() -> None:
     assert str(FhirDate("2020")) == "2020"
     assert str(FhirDate("2020-05")) == "2020-05"
     assert str(FhirDate("2020-05-04")) == "2020-05-04"
+
+
+def test_pickle_round_trip_full_precision() -> None:
+    """A fully-specified instance survives pickling."""
+    d = FhirDate(2020, 5, 4)
+    restored = pickle.loads(pickle.dumps(d))  # noqa: S301
+    assert restored == d
+    assert isinstance(restored, FhirDate)
+
+
+@pytest.mark.parametrize("d", [FhirDate(2021), FhirDate(2021, 4), FhirDate(2021, 4, 12)])
+def test_pickle_round_trip_partial_precision(d: FhirDate) -> None:
+    """Partial-precision instances (FHIR's whole point) also round-trip."""
+    restored = pickle.loads(pickle.dumps(d))  # noqa: S301
+    assert restored == d
+    assert restored.month == d.month
+
+
+def test_deepcopy() -> None:
+    """copy.deepcopy uses the same __reduce_ex__ path as pickle."""
+    d = FhirDate(2020, 5, 4)
+    dup = copy.deepcopy(d)
+    assert dup == d
+    assert dup is not d
+    assert isinstance(dup, FhirDate)
+
+
+def test_copy() -> None:
+    """copy.copy uses the same __reduce_ex__ path as pickle."""
+    d = FhirDate(2020, 5, 4)
+    dup = copy.copy(d)
+    assert dup == d
+    assert dup is not d
+    assert isinstance(dup, FhirDate)
+
+
+def test_add_and_radd() -> None:
+    """`+` between a full-precision FhirDate and a timedelta works in both operand orders."""
+    d = FhirDate(2020, 5, 4)
+    expected = FhirDate(2020, 5, 5)
+    assert d + timedelta(days=1) == expected
+    assert timedelta(days=1) + d == expected
+
+
+def test_sub_date() -> None:
+    """`-` between two full-precision FhirDate instances returns a timedelta."""
+    assert FhirDate(2020, 5, 5) - FhirDate(2020, 5, 4) == timedelta(days=1)
+
+
+def test_min_max_are_fhirdate_instances() -> None:
+    """FhirDate.min/.max must be FhirDate instances, not the private vendored _Date.
+
+    Without an explicit override, these would resolve via inheritance to
+    `_Date.min`/`.max` (set at the bottom of `_datetime.py`) -- a leaked
+    private type where `isinstance(FhirDate.min, FhirDate)` is `False`.
+    """
+    assert isinstance(FhirDate.min, FhirDate)
+    assert isinstance(FhirDate.max, FhirDate)
+    assert FhirDate.min == FhirDate(1, 1, 1)
+    assert FhirDate.max == FhirDate(9999, 12, 31)
+
+
+def test_rsub_real_date_minus_fhir_date() -> None:
+    """`real_date - fhir_date` must go through FhirDate's own __sub__, not date's C fast path.
+
+    Without `__rsub__`, `date.__sub__`'s C implementation reads the other
+    operand's year/month/day directly off its C struct once it confirms
+    the operand is date-like -- since FhirDate's real struct is frozen at
+    the `__new__` placeholder (1, 1, 1), that silently computed a *wrong*
+    timedelta (based on the placeholder, not the actual value) instead of
+    raising. This must never regress silently, so assert the exact value,
+    not just that it doesn't crash.
+    """
+    real = date(2020, 5, 10)
+    fhir = FhirDate(2020, 5, 4)
+    assert real - fhir == timedelta(days=6)
+    # Also confirm it's not coincidentally right for one value only.
+    assert date(1999, 1, 1) - FhirDate(1998, 1, 1) == timedelta(days=365)
+
+
+@pytest.mark.parametrize("d", [FhirDate(2021), FhirDate(2021, 4)])
+def test_arithmetic_on_partial_precision_raises(d: FhirDate) -> None:
+    """+/- on a partial-precision FhirDate raises a clear error, not an internal TypeError."""
+    with pytest.raises(TypeError, match="unpopulated month/day"):
+        _ = d + timedelta(days=1)
+    with pytest.raises(TypeError, match="unpopulated month/day"):
+        _ = d - FhirDate(2020, 5, 4)
+    with pytest.raises(TypeError, match="unpopulated month/day"):
+        _ = FhirDate(2020, 5, 4) - d
