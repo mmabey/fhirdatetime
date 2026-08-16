@@ -290,6 +290,26 @@ def test_other_methods() -> None:
     assert str(FhirDateTime("2020-05-04")) == "2020-05-04"
 
 
+def test_str_includes_time_portion() -> None:
+    """str() on a time-bearing FhirDateTime must include the time, not just the date.
+
+    Regression test for an MRO-shadowing bug found during the core-class
+    design review: FhirDate binds `__str__ = isoformat` directly to its
+    own (date-only) function object. Since FhirDate precedes _DateTime in
+    FhirDateTime's MRO, that alias would shadow _DateTime.__str__'s
+    polymorphic `self.isoformat(sep=" ")` call for any FhirDateTime that
+    didn't explicitly override __str__ itself -- silently truncating the
+    time portion. FhirDateTime now has its own explicit __str__; this
+    guards against that regressing silently again.
+    """
+    dt = FhirDateTime(2020, 5, 4, 13, 42, 54, tzinfo=UTC)
+    assert str(dt) == dt.isoformat(sep=" ")
+    assert str(dt) == "2020-05-04 13:42:54+00:00"
+
+    # Date-only is unaffected either way (no time to truncate).
+    assert str(FhirDateTime(2020, 5, 4)) == "2020-05-04"
+
+
 def test_isocalendar_fields() -> None:
     """isocalendar() returns a named-tuple-like object with named attribute access."""
     dt = FhirDateTime(2020, 5, 4)
