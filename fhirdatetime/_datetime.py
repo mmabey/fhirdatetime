@@ -901,7 +901,9 @@ class _DateTime:
         "string, format -> new datetime parsed from a string (like time.strptime())."
         import _strptime
 
-        return _strptime._strptime_datetime(cls, date_string, format)
+        # Python 3.14 renamed _strptime_datetime -> _strptime_datetime_datetime.
+        strptime_datetime = getattr(_strptime, "_strptime_datetime_datetime", None) or _strptime._strptime_datetime
+        return strptime_datetime(cls, date_string, format)
 
     def utcoffset(self):
         """Return the timezone offset as timedelta

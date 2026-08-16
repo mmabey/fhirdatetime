@@ -19,6 +19,10 @@ Unreleased
 - Fixed ``README.rst``/``docs/index.rst`` duplication by single-sourcing
   the docs homepage from the README.
 - Added ``.readthedocs.yaml`` for Read the Docs builds.
+- Added a ``CHANGELOG``.
+- Fixed ``FhirDateTime.strptime``/``fromisoformat`` on Python 3.14, where
+  CPython renamed the internal ``_strptime`` function it relied on. Added
+  Python 3.14 support.
 
 0.1.0b8 (2021-04-27)
 --------------------
