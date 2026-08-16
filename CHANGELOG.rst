@@ -4,8 +4,8 @@ Changelog
 All notable changes to this project are documented here. Versions follow
 the tags published to PyPI.
 
-Unreleased
-----------
+1.0.0 (2026-08-16)
+------------------
 
 - Added ``FhirDate``, for FHIR's ``date`` type. ``FhirDateTime`` now
   subclasses it, sharing comparison/hashing/sorting logic instead of
@@ -37,6 +37,8 @@ Unreleased
 - ``main`` now auto-tags and publishes a release on every push that bumps
   the version in ``pyproject.toml``, instead of requiring a manually
   pushed tag.
+- Documented ``FhirDate`` throughout (module docstring, ``README.rst``,
+  ``docs/api.rst``), which previously only covered ``FhirDateTime``.
 
 0.2.0 (2026-08-16)
 ------------------

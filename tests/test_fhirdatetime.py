@@ -21,7 +21,7 @@ random.seed()
 
 def test_version() -> None:
     """Check library version is what it should be."""
-    ver = "0.2.0"
+    ver = "1.0.0"
     assert __version__ == ver
     with Path("pyproject.toml").open() as proj:
         for line in proj:

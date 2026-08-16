@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 __all__ = ["FhirDate", "FhirDateTime", "__version__"]
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
