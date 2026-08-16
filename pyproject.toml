@@ -3,7 +3,8 @@ name = "fhirdatetime"
 version = "0.1.0b8"
 description = "A datetime-compatible class for FHIR date/datetime values."
 authors = [{ name = "Mike Mabey", email = "email@mikemabey.com" }]
-license = "MIT"
+license = "MIT AND PSF-2.0"
+license-files = ["LICENSE*.txt"]
 readme = "README.rst"
 requires-python = ">=3.11"
 classifiers = [

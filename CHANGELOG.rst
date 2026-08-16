@@ -23,6 +23,9 @@ Unreleased
 - Fixed ``FhirDateTime.strptime``/``fromisoformat`` on Python 3.14, where
   CPython renamed the internal ``_strptime`` function it relied on. Added
   Python 3.14 support.
+- Added PSF license attribution for ``fhirdatetime/_datetime.py``, which
+  is adapted from CPython's ``Lib/datetime.py``; package license changed
+  from ``MIT`` to the SPDX expression ``MIT AND PSF-2.0``.
 
 0.1.0b8 (2021-04-27)
 --------------------

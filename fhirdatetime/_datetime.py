@@ -3,6 +3,11 @@
 
 See http://www.iana.org/time-zones/repository/tz-link.html for
 time zone and DST data sources.
+
+Adapted from CPython's Lib/datetime.py. Copyright (c) 2001 Python
+Software Foundation; All Rights Reserved. Used and modified under the
+PSF License Agreement; see ../LICENSE.PSF.txt for the full license text
+and a summary of the changes made to this file.
 """
 
 import math as _math
