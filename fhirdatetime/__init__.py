@@ -1,4 +1,4 @@
-"""A datetime-compatible class for FHIR date/datetime values.
+"""``date``/``datetime``-compatible classes for FHIR date/datetime values.
 
 The `FHIR specification <https://www.hl7.org/fhir/>`_ from HL7 is "a
 standard for health care data exchange." The FHIR spec includes
@@ -9,7 +9,14 @@ that provide more flexibility than the standard Python :class:`date` and
 report to their provider that they have experience a particular symptom
 since a particular year without knowing the month or day of onset.
 
-The purpose of this class is to allow for this flexibility without
+:class:`FhirDate` represents FHIR's ``date`` type (year, year-month, or
+year-month-day precision), and :class:`FhirDateTime` represents FHIR's
+``dateTime`` type (everything :class:`FhirDate` supports, plus an optional
+time-of-day and timezone). :class:`FhirDateTime` *is a* :class:`FhirDate`
+(it subclasses it), so anywhere a :class:`FhirDate` is expected --
+comparisons, sorting, type checks -- a :class:`FhirDateTime` works too.
+
+The purpose of these classes is to allow for this flexibility without
 sacrificing the ability to compare (using <, >, ==, etc.) against objects
 of the same type as well as :class:`date` and :class:`datetime` objects.
 
@@ -32,13 +39,14 @@ False
 from __future__ import annotations
 
 import re
-from datetime import MAXYEAR, MINYEAR, UTC, date, datetime, tzinfo as tzinfo_
+from datetime import MAXYEAR, MINYEAR, UTC, date, datetime, timedelta, tzinfo as tzinfo_
 from operator import itemgetter
 from typing import TYPE_CHECKING, Self, SupportsIndex, TypeAlias, overload
 
 from ._datetime import (
     _check_int_field,
     _cmp,
+    _Date,
     _DateTime,
     _days_in_month,
     _format_offset,
@@ -48,14 +56,21 @@ from ._datetime import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["FhirDateTime", "__version__"]
-__version__ = "0.2.0"
+__all__ = ["FhirDate", "FhirDateTime", "__version__"]
+__version__ = "1.0.0"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
 _y_pat = re.compile(r"^(\d{4})$")
 _ym_pat = re.compile(r"^(\d{4})-(\d{2})$")
 _ymd_pat = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+# Matches a literal leap second (:60) in the seconds position of the time
+# portion only (the `T\d{2}:\d{2}:` anchor requires it to follow the
+# hour:minute of a time component, not just any ":60" substring).
+_leap_second_pat = re.compile(r"(T\d{2}:\d{2}:)60(\.\d+)?")
+_y_format = "{_year:04d}"
+_ym_format = _y_format + "-{_month:02d}"
+_ymd_format = _ym_format + "-{_day:02d}"
 
 # Indexes used by __getitem__ / sort_key() to expose fields positionally.
 _IDX_YEAR = 0
@@ -76,34 +91,25 @@ _MAX_MICROSECOND = 999_999
 # through tzinfo (second/microsecond/fold are never unpopulated — they
 # default to 0, not None).
 _Field: TypeAlias = int | None
-# What `_check_datetime_fields` validates and returns, in
-# (year, month, day, hour, minute, second, microsecond, tzinfo, fold) order.
-DateTimeFields: TypeAlias = tuple[int, _Field, _Field, _Field, _Field, int, int, tzinfo_ | None, int]
-# The `year` positional accepted by `__new__`/`__init__`: an explicit year,
-# an ISO string to parse, or an existing date/datetime to copy from.
+# What `_check_date_fields` validates and returns, in (year, month, day) order.
+DateFields: TypeAlias = tuple[int, _Field, _Field]
+# What `_check_time_fields` validates and returns, in (hour, minute, second,
+# microsecond, tzinfo, fold) order.
+TimeFields: TypeAlias = tuple[_Field, _Field, int, int, tzinfo_ | None, int]
+# The `year` positional accepted by `FhirDate.__new__`/`__init__`: an
+# explicit year, an ISO string to parse, or an existing date to copy from.
+DateArg: TypeAlias = int | str | date
+# The `year` positional accepted by `FhirDateTime.__new__`/`__init__`: an
+# explicit year, an ISO string to parse, or an existing date/datetime to
+# copy from.
 YearArg: TypeAlias = int | str | datetime | date
-# What `sort_key()`'s returned callable produces: (year, month, day, hour,
-# minute, second, microsecond), with -1 standing in for unpopulated fields.
+# What `sort_key()`'s returned callable produces: -1 stands in for
+# unpopulated fields.
 SortableFields: TypeAlias = tuple[int, ...]
 
 
-def _check_datetime_fields(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917
-    year: int,
-    month: _Field,
-    day: _Field,
-    hour: _Field,
-    minute: _Field,
-    second: int,
-    microsecond: int,
-    tzinfo: tzinfo_ | None,
-    fold: int,
-) -> DateTimeFields:
-    # Customized from version in datetime. Kept as a single function (rather
-    # than split per field) because FHIR's cascading precision rules mean
-    # each check depends on the result of the one before it (e.g. day
-    # requires month, hour requires day) — splitting would only fragment a
-    # sequential cascade, not simplify it. Argument count mirrors
-    # datetime.datetime.__new__'s own arity for drop-in compatibility.
+def _check_date_fields(year: int, month: _Field, day: _Field) -> DateFields:
+    # Customized from version in datetime.
     # Year checks
     year = _check_int_field(year)
     if not MINYEAR <= year <= MAXYEAR:
@@ -128,6 +134,18 @@ def _check_datetime_fields(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917
             msg = f"day must be in 1..{dim}"
             raise ValueError(msg, day)
 
+    return year, month, day
+
+
+def _check_time_fields(  # noqa: C901, PLR0912, PLR0913, PLR0917
+    day: _Field,
+    hour: _Field,
+    minute: _Field,
+    second: int,
+    microsecond: int,
+    tzinfo: tzinfo_ | None,
+    fold: int,
+) -> TimeFields:
     # Hour checks
     if hour is not None:
         if day is None:
@@ -158,6 +176,13 @@ def _check_datetime_fields(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917
     if tzinfo is not None and hour is None:
         msg = "Cannot specify timezone without hour and minute"
         raise ValueError(msg)
+    if hour is not None and tzinfo is None:
+        # FHIR's dateTime grammar requires a timezone offset the moment any
+        # time component is present at all -- there's no such thing as a
+        # naive or offset-less time in FHIR (unlike this class's own
+        # partial-precision cascade for year/month/day).
+        msg = "FHIR dateTime requires a timezone whenever a time is specified"
+        raise ValueError(msg)
 
     # Second checks
     second = _check_int_field(second)
@@ -174,16 +199,316 @@ def _check_datetime_fields(  # noqa: C901, PLR0912, PLR0913, PLR0915, PLR0917
         msg = "fold must be either 0 or 1"
         raise ValueError(msg, fold)
 
-    return year, month, day, hour, minute, second, microsecond, tzinfo, fold
+    return hour, minute, second, microsecond, tzinfo, fold
 
 
-class FhirDateTime(_DateTime, datetime):
-    """Type for representing datetime values from FHIR data."""
+class FhirDate(_Date, date):
+    """Type for representing date values from FHIR data."""
+
+    def __new__(cls, year: DateArg, *_: object, **__: object) -> Self:
+        """Start creating FhirDate instance."""
+        # Give date.__new__() an arbitrary date to pass its value checks
+        return date.__new__(cls, 1, 1, 1)
+
+    def __init__(self, year: DateArg, month: int | None = None, day: int | None = None) -> None:
+        """Create new FhirDate instance.
+
+        :param year: Only required value [1, 9999].
+        :param month: Optional [1-12].
+        :param day: Optional [1-31].
+        :returns: New instance of FhirDate.
+        """
+        if isinstance(year, (datetime, date)):
+            self._replace_with(year)
+            return
+        if isinstance(year, str):
+            dt = FhirDateTime.fromisoformat(year)
+            self._replace_with(dt)
+            return
+
+        # Check values are within acceptable ranges
+        year, month, day = _check_date_fields(year, month, day)
+        _Date.__init__(self, year, month, day)
+
+    def isoformat(self) -> str:
+        """Return the date formatted according to ISO.
+
+        The full format looks like 'YYYY-MM-DD'. By default, any missing part
+        is omitted.
+        """
+        if self._month is None:
+            fmt = _y_format
+        elif self._day is None:
+            fmt = _ym_format
+        else:
+            fmt = _ymd_format
+
+        return fmt.format(**self.__dict__)
+
+    @classmethod
+    def fromisoformat(cls, date_string: str) -> FhirDate:
+        """Construct a FhirDate from the output of FhirDate.isoformat()."""
+        for pat in (_y_pat, _ym_pat, _ymd_pat):
+            m = re.match(pat, date_string)
+            if m:
+                return FhirDate(*(int(p) for p in m.groups()))
+        msg = "Unknown date format."
+        raise ValueError(msg)
+
+    @staticmethod
+    def from_native(other: date) -> FhirDate:
+        """Create instance from standard lib date obj."""
+        d = FhirDate(1)  # Just an arbitrary year
+        d._replace_with(other)
+        return d
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> tuple[type[Self], tuple[str]]:
+        """Support pickling and :func:`copy.deepcopy`.
+
+        Same rationale as :meth:`FhirDateTime.__reduce_ex__`: the inherited
+        ``_Date.__reduce_ex__`` produces a `bytes` state blob shaped for
+        `datetime.date.__setstate__`, which this class's `__init__` doesn't
+        understand. Round-trip through `isoformat` instead.
+        """
+        del protocol
+        return self.__class__, (self.isoformat(),)
+
+    def _replace_with(self, other: ComparableDateTypes) -> None:
+        if not isinstance(other, (FhirDate, date)):
+            msg = f"Can only create FhirDate from date types, got {type(other).__name__}"
+            raise TypeError(msg)
+        self._year = other.year
+        self._month = other.month
+        self._day = other.day
+
+    def _require_full_precision(self) -> None:
+        """Raise a clear error if this instance is missing fields arithmetic needs.
+
+        Without this, `+`/`-` fall through to the vendored `_Date`/
+        `_DateTime` arithmetic, which calls `toordinal()` (and, for
+        `FhirDateTime`, builds a `timedelta` from `_hour`/`_minute`
+        directly) assuming every field is a real `int` -- on a
+        partial-precision instance those are `None`, so the failure
+        surfaces as a confusing low-level `TypeError` from deep inside
+        `toordinal`/`timedelta` instead of an actionable message.
+        Overridden by :class:`FhirDateTime` to also require `hour`/`minute`.
+        """
+        if None in (self._month, self._day):
+            msg = f"Cannot perform arithmetic on a {self.__class__.__name__} with unpopulated month/day"
+            raise TypeError(msg)
+
+    def __add__(self, other: timedelta) -> Self:
+        self._require_full_precision()
+        return super().__add__(other)
+
+    __radd__ = __add__
+
+    @overload
+    def __sub__(self, other: timedelta) -> Self: ...
+    @overload
+    def __sub__(self, other: ComparableDateTypes) -> timedelta: ...
+    def __sub__(  # ty: ignore[invalid-method-override]
+        self, other: ComparableDateTypes | timedelta
+    ) -> Self | timedelta:
+        # Real date/datetime.__sub__ supports both overloads at runtime (a
+        # timedelta arg returns Self, a date/datetime arg returns timedelta)
+        # -- typeshed's stub for date.__sub__ only declares the first, so ty
+        # sees this union return as narrower-than-required. Both @overload
+        # stubs above are the accurate contract; this suppression is only
+        # for the combined implementation signature typeshed can't express.
+        self._require_full_precision()
+        if isinstance(other, FhirDate):
+            other._require_full_precision()
+        return super().__sub__(other)
+
+    def __rsub__(self, other: date) -> timedelta:
+        """Support ``real_date - fhir_date`` returning a correct timedelta.
+
+        Without this, ``real_date - fhir_date`` is handled entirely by the
+        real ``date.__sub__`` (a C-level fast path never even reaches this
+        class): CPython's C `date.__sub__` reads the *other* operand's
+        year/month/day directly off its C struct once it confirms the
+        operand is date-like (`PyDate_Check`), bypassing the Python-level
+        property overrides entirely. Since this class's real C struct is
+        permanently frozen at the `__new__` placeholder `(1, 1, 1)`, that
+        silently computes a *wrong* answer using the placeholder instead of
+        this instance's actual (possibly partial-precision) values -- not
+        an error, a wrong one. Defining `__rsub__` here (which `date`
+        itself never defines) makes Python's "prefer the subclass's
+        reflected method" rule route through this class's own (correct)
+        `__sub__` instead.
+        """
+        return -(self - other)
+
+    @staticmethod
+    @overload
+    def sort_key(attr_path: None = None) -> Callable[[FhirDate], SortableFields]: ...
+    @staticmethod
+    @overload
+    def sort_key(attr_path: str) -> Callable[[object], SortableFields]: ...
+    @staticmethod
+    def sort_key(
+        attr_path: str | None = None,
+    ) -> Callable[[FhirDate], SortableFields] | Callable[[object], SortableFields]:
+        """Create a function appropriate for use as a sorting key.
+
+        .. important:: When there is ambiguity due to one :class:`FhirDate`
+            object storing less-granular data than another (e.g.,
+            ``FhirDate(2021)`` vs. ``FhirDate(2021, 4)``), objects with missing
+            values will be ordered *before* those with more granular values
+            that would otherwise be considered equivalent when using the ``==``
+            operator.
+
+        When you need to sort a sequence of either :class:`FhirDate` objects or
+        object that *contain* a :class:`FhirDate` object, this function will
+        make it easier to sort the items properly.
+
+        There are two ways to use this function. The first is intended for use
+        when sorting a sequence of :class:`FhirDate` objects, something like
+        this (notice that ``sort_key()`` is called with no parameters):
+
+        >>> sorted(
+        ...     [FhirDate(2021, 4), FhirDate(2021), FhirDate(2021, 4, 12)],
+        ...     key=FhirDate.sort_key()
+        ... )
+        [fhirdatetime.FhirDate(2021), fhirdatetime.FhirDate(2021, 4), fhirdatetime.FhirDate(2021, 4, 12)]
+
+        The second is for use when sorting a sequence of objects that have
+        :class:`FhirDate` objects as attributes. This example sorts the
+        ``CarePlan`` objects by the care plan's period's start date:
+
+        >>> goal_list = [...]  # See tests/test_sorting.py for full examples
+        >>> sorted(goal_list, key=FhirDate.sort_key("startDate"))
+
+        In this example, ``sorted()`` passes each item in ``goal_list`` to the
+        ``sort_key`` static method, which  gets the ``startDate`` attribute of
+        the goal. Finally, the year, month, and day are returned to
+        ``sorted()``, which does the appropriate sorting on those values.
+
+        :param attr_path: A attribute "path" to the :class:`FhirDate` object to
+            be used as the basis for sorting, such as ``"startDate"``.
+        :return: A function identifying values to use for sorting.
+        """
+        i = itemgetter(_IDX_YEAR, _IDX_MONTH, _IDX_DAY)
+        if attr_path is None:
+            return i
+
+        def caller(obj: object) -> SortableFields:
+            for attr in attr_path.split("."):
+                obj = getattr(obj, attr)
+            if not isinstance(obj, FhirDate):
+                msg = f"attr_path must lead to an instance of FhirDate, not {type(obj).__name__}"
+                raise TypeError(msg)
+            return i(obj)
+
+        return caller
+
+    def _cmp(self, other: ComparableDateTypes) -> int:
+        if not isinstance(other, (FhirDate, date)):
+            msg = f"Cannot compare FhirDate and {type(other).__name__}"
+            raise TypeError(msg)
+
+        for f in DATE_FIELDS:
+            my = getattr(self, f, None)
+            ot = getattr(other, f, None)
+            if None in {my, ot}:
+                return 0
+            c = _cmp(my, ot)
+            if c != 0:
+                return c
+        # Means all fields are the same and non-None
+        return 0
+
+    def __eq__(self, other: object) -> bool:
+        # Unlike ordering comparisons, == must accept arbitrary objects and
+        # defer via NotImplemented rather than raise — otherwise routine
+        # operations like `x in some_dict`/`x in some_set` crash instead of
+        # just returning False when `x` happens to collide with a
+        # FhirDate's hash bucket.
+        if not isinstance(other, (FhirDate, date)):
+            return NotImplemented
+        return self._cmp(other) == 0
+
+    def __ne__(self, other: object) -> bool:
+        if not isinstance(other, (FhirDate, date)):
+            return NotImplemented
+        return self._cmp(other) != 0
+
+    def __le__(self, other: ComparableDateTypes) -> bool:
+        return self._cmp(other) <= 0
+
+    def __lt__(self, other: ComparableDateTypes) -> bool:
+        return self._cmp(other) < 0
+
+    def __ge__(self, other: ComparableDateTypes) -> bool:
+        return self._cmp(other) >= 0
+
+    def __gt__(self, other: ComparableDateTypes) -> bool:
+        return self._cmp(other) > 0
+
+    def __hash__(self) -> int:
+        """Hash consistently with this class's equality semantics.
+
+        ``_cmp`` only ever reaches a non-ambiguous verdict once it finds a
+        populated field on both sides that differs; if either side is
+        missing a field, comparison short-circuits to "equal". Year is the
+        one field always populated, so any two objects that compare equal
+        necessarily share the same year — hashing on year alone satisfies
+        ``a == b -> hash(a) == hash(b)``.
+        """
+        return hash(self._year)
+
+    __str__ = isoformat
+
+    def __repr__(self) -> str:
+        """Convert to formal string, for repr()."""
+        f = [self._year, self._month, self._day]
+        while f[-1] in {0, None}:
+            del f[-1]
+        return f"{self.__class__.__module__}.{self.__class__.__qualname__}({', '.join(map(str, f))})"
+
+    def __getitem__(self, item: int) -> int:
+        if item == _IDX_YEAR:
+            val = self.year
+        elif item == _IDX_MONTH:
+            val = self.month
+        elif item == _IDX_DAY:
+            val = self.day
+        else:
+            msg = "Valid indexes are 0-2"
+            raise IndexError(msg)
+
+        if val is None:
+            # Assume we're accessing for sorting purposes and empty values come first
+            val = -1
+        return val
+
+
+# Without these, `FhirDate.min`/`.max` would resolve via inheritance to the
+# vendored `_Date.min`/`.max` set at the bottom of `_datetime.py` -- real
+# `_Date` instances, not `FhirDate` ones. That's a leaked private type:
+# `isinstance(FhirDate.min, FhirDate)` would be `False`.
+FhirDate.min = FhirDate(1, 1, 1)
+FhirDate.max = FhirDate(9999, 12, 31)
+
+
+class FhirDateTime(FhirDate, _DateTime, datetime):
+    """Type for representing datetime values from FHIR data.
+
+    Subclasses :class:`FhirDate` (rather than duplicating its comparison
+    operators) since a :class:`FhirDateTime` *is a* :class:`FhirDate` with
+    optional time-of-day precision layered on top — ``==``/``<``/etc. are
+    inherited from :class:`FhirDate` and dispatch back through this class's
+    own :meth:`_cmp` override polymorphically.
+    """
 
     def __new__(cls, year: YearArg, *_: object, **__: object) -> Self:
         """Start creating FhirDateTime instance."""
-        # Give datetime.__new__() an arbitrary date to pass its value checks
-        return super().__new__(cls, 1, 1, 1)
+        # Give datetime.__new__() an arbitrary date to pass its value checks.
+        # Must call datetime.__new__ directly rather than super().__new__:
+        # FhirDate is next in the MRO and its own __new__ would route through
+        # date.__new__ instead, producing a plain date-shaped instance.
+        return datetime.__new__(cls, 1, 1, 1)
 
     def __init__(  # noqa: PLR0913, PLR0917
         self,
@@ -220,38 +545,14 @@ class FhirDateTime(_DateTime, datetime):
             return
 
         # Check values are within acceptable ranges
-        (
-            year,
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            microsecond,
-            tzinfo,
-            fold,
-        ) = _check_datetime_fields(
-            year,
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            microsecond,
-            tzinfo,
-            fold,
+        year, month, day = _check_date_fields(year, month, day)
+        hour, minute, second, microsecond, tzinfo, fold = _check_time_fields(
+            day, hour, minute, second, microsecond, tzinfo, fold
         )
-        super().__init__(
-            year,
-            month,
-            day,
-            hour,
-            minute,
-            second,
-            microsecond,
-            tzinfo,
-            fold=fold,
-        )
+        # Must call _DateTime.__init__ directly rather than super().__init__:
+        # FhirDate is next in the MRO and its own __init__ only accepts
+        # (year, month, day), not the full datetime field set.
+        _DateTime.__init__(self, year, month, day, hour, minute, second, microsecond, tzinfo, fold=fold)
 
     def isoformat(self, sep: str = "T", timespec: str = "auto") -> str:
         """Return the time formatted according to ISO.
@@ -269,29 +570,11 @@ class FhirDateTime(_DateTime, datetime):
         terms of the time to include. Valid options are 'auto', 'hours',
         'minutes', 'seconds', 'milliseconds' and 'microseconds'.
         """
-        y = "{_year:04d}"
-        ym = y + "-{_month:02d}"
-        ymd = ym + "-{_day:02d}"
-        ymdt = ymd + f"{sep}" + "{t}"
-        t = ""
+        if None in {self._hour, self._minute}:
+            return FhirDate.isoformat(self)
 
-        if self._month is None:
-            fmt = y
-        elif self._day is None:
-            fmt = ym
-        elif None in {self._hour, self._minute}:
-            fmt = ymd
-        else:
-            fmt = ymdt
-            t = _format_time(
-                self._hour,
-                self._minute,
-                self._second,
-                self._microsecond,
-                timespec,
-            )
-
-        s = fmt.format(**{"t": t, **self.__dict__})
+        fmt = _ymd_format + sep + _format_time(self._hour, self._minute, self._second, self._microsecond, timespec)
+        s = fmt.format(**self.__dict__)
         off = self.utcoffset()
         tz = _format_offset(off)
         if tz:
@@ -302,6 +585,15 @@ class FhirDateTime(_DateTime, datetime):
     @classmethod
     def fromisoformat(cls, date_string: str) -> FhirDateTime:
         """Construct a FhirDateTime from the output of FhirDateTime.isoformat()."""
+        # FHIR's dateTime grammar explicitly allows a leap second (:60), but
+        # this library never produces one (isoformat()/construction still
+        # cap at :59) -- per FHIR's own guidance ("applications reading
+        # times SHOULD accept and handle leap seconds gracefully, and
+        # applications producing them MAY choose to avoid encoding leap
+        # seconds"), normalize it to :59 on parse rather than rejecting or
+        # attempting to store/round-trip it distinctly.
+        date_string = _leap_second_pat.sub(r"\g<1>59\2", date_string)
+
         # Check for shorter formats first. Handled one pattern at a time
         # (rather than looping and unpacking `*groups`) so each call site
         # has a fixed, statically-checkable arity.
@@ -316,23 +608,39 @@ class FhirDateTime(_DateTime, datetime):
             return FhirDateTime(int(m[1]), int(m[2]), int(m[3]))
 
         try:
-            return super().fromisoformat(date_string)
+            # FhirDate is next in the MRO and its own fromisoformat only
+            # handles the y/ym/ymd patterns already tried above (and would
+            # just re-raise ValueError) — skip straight to _DateTime's full
+            # ISO-datetime parser. See super()'s docs on __mro__ if this
+            # explicit two-arg form is surprising:
+            # https://docs.python.org/3/library/functions.html#super
+            return super(FhirDate, cls).fromisoformat(date_string)
         except (ValueError, IndexError):
             pass
 
         for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
-            # These formats need to have the UTC timezone inserted after creation
             try:
-                return cls.strptime(date_string, fmt).replace(tzinfo=UTC)
+                # Parse via the real stdlib datetime, not cls.strptime: the
+                # latter would construct an intermediate *naive* FhirDateTime
+                # before tzinfo is attached, which now raises on its own
+                # (FHIR requires a timezone whenever a time is present).
+                # Build the final, already-aware instance in one shot instead.
+                parsed = datetime.strptime(date_string, fmt)  # noqa: DTZ007
             except ValueError:
-                pass
+                continue
+            return cls(
+                parsed.year,
+                parsed.month,
+                parsed.day,
+                parsed.hour,
+                parsed.minute,
+                parsed.second,
+                parsed.microsecond,
+                tzinfo=UTC,
+            )
 
-        for fmt in ("%Y-%m-%dT%H:%M:%S.%f%Z", "%Y-%m-%dT%H:%M:%S%Z"):
-            try:
-                return cls.strptime(date_string, fmt)
-            except ValueError as err:
-                last_err = err
-        raise last_err
+        msg = f"Invalid isoformat string: {date_string!r}"
+        raise ValueError(msg)
 
     @staticmethod
     def from_native(other: datetime | date) -> FhirDateTime:
@@ -365,6 +673,28 @@ class FhirDateTime(_DateTime, datetime):
         """
         return cls.from_native(datetime.now(tz))
 
+    @classmethod
+    def utcnow(cls) -> FhirDateTime:
+        """Construct a FhirDateTime for the current UTC date and time, timezone-aware.
+
+        Unlike stdlib's deprecated ``datetime.utcnow()`` (naive by
+        convention), this attaches UTC ``tzinfo`` directly: FHIR requires a
+        timezone whenever a time is present, so a naive result here would
+        be permanently unusable rather than merely inconvenient. Equivalent
+        to ``now(UTC)``.
+        """
+        return cls.now(UTC)
+
+    @classmethod
+    def utcfromtimestamp(cls, t: float) -> FhirDateTime:
+        """Construct a FhirDateTime from a POSIX timestamp, UTC and timezone-aware.
+
+        See :meth:`utcnow` for why this attaches UTC ``tzinfo`` rather than
+        matching stdlib's deprecated (naive) ``datetime.utcfromtimestamp()``.
+        Equivalent to ``fromtimestamp(t, UTC)``.
+        """
+        return cls.fromtimestamp(t, UTC)
+
     def __reduce_ex__(self, protocol: SupportsIndex) -> tuple[type[Self], tuple[str]]:
         """Support pickling and :func:`copy.deepcopy`.
 
@@ -380,7 +710,7 @@ class FhirDateTime(_DateTime, datetime):
         del protocol
         return self.__class__, (self.isoformat(),)
 
-    def _replace_with(self, other: ComparableTypes) -> None:
+    def _replace_with(self, other: ComparableDateTimeTypes) -> None:
         if not isinstance(other, (FhirDateTime, date, datetime)):
             msg = f"Can only create FhirDateTime from date, datetime types, got {type(other).__name__}"
             raise TypeError(msg)
@@ -402,6 +732,27 @@ class FhirDateTime(_DateTime, datetime):
             self._tzinfo = None
             self._fold = 0
 
+        if self._hour is not None and self._tzinfo is None:
+            # Same FHIR rule as `_check_time_fields`, enforced here too since
+            # `now()`/`fromtimestamp()`/`from_native()`, and constructing
+            # from an existing date/datetime, all go through this method
+            # rather than `_check_time_fields` -- e.g. `FhirDateTime.now()`
+            # with no `tz` argument would otherwise silently produce a
+            # non-compliant naive-with-time instance.
+            msg = "FHIR dateTime requires a timezone whenever a time is specified"
+            raise ValueError(msg)
+
+    def _require_full_precision(self) -> None:
+        """Extend :meth:`FhirDate._require_full_precision` to also require hour/minute.
+
+        `second`/`microsecond` never need checking -- they default to `0`,
+        never `None`.
+        """
+        super()._require_full_precision()
+        if None in (self._hour, self._minute):
+            msg = f"Cannot perform arithmetic on a {self.__class__.__name__} with unpopulated hour/minute"
+            raise TypeError(msg)
+
     @staticmethod
     @overload
     def sort_key(attr_path: None = None) -> Callable[[FhirDateTime], SortableFields]: ...
@@ -409,10 +760,18 @@ class FhirDateTime(_DateTime, datetime):
     @overload
     def sort_key(attr_path: str) -> Callable[[object], SortableFields]: ...
     @staticmethod
-    def sort_key(
+    def sort_key(  # ty: ignore[invalid-method-override]
         attr_path: str | None = None,
     ) -> Callable[[FhirDateTime], SortableFields] | Callable[[object], SortableFields]:
         """Create a function appropriate for use as a sorting key.
+
+        This narrows :meth:`FhirDate.sort_key`'s ``Callable[[FhirDate], ...]``
+        return type to ``Callable[[FhirDateTime], ...]``, which is technically
+        an LSP violation -- but it reflects a real runtime restriction, not
+        just a typing choice: the returned callable's ``attr_path`` form
+        needs hour/minute/second/microsecond, so it genuinely rejects a
+        plain (non-``FhirDateTime``) ``FhirDate`` via the ``isinstance``
+        check below, same as the type says.
 
         .. important:: When there is ambiguity due to one :class:`FhirDateTime`
             object storing less-granular data than another (e.g.,
@@ -426,14 +785,14 @@ class FhirDateTime(_DateTime, datetime):
         function will make it easier to sort the items properly.
 
         There are two ways to use this function. The first is intended for use
-        when sorting a sequence of  :class:`FhirDateTime` objects, something
+        when sorting a sequence of :class:`FhirDateTime` objects, something
         like this (notice that ``sort_key()`` is called with no parameters):
 
         >>> sorted(
         ...     [FhirDateTime(2021, 4), FhirDateTime(2021), FhirDateTime(2021, 4, 12)],
         ...     key=FhirDateTime.sort_key()
         ... )
-        [FhirDateTime(2021), FhirDateTime(2021, 4), FhirDateTime(2021, 4, 12)]
+        [fhirdatetime.FhirDateTime(2021), fhirdatetime.FhirDateTime(2021, 4), fhirdatetime.FhirDateTime(2021, 4, 12)]
 
         The second is for use when sorting a sequence of objects that have
         :class:`FhirDateTime` objects as attributes. This example sorts the
@@ -475,13 +834,13 @@ class FhirDateTime(_DateTime, datetime):
 
         return caller
 
-    def _cmp(self, other: ComparableTypes, allow_mixed: bool = False) -> int:
+    def _cmp(self, other: ComparableDateTimeTypes, allow_mixed: bool = False) -> int:
         # allow_mixed is accepted (but unused) purely to match the base class's
         # signature (_DateTime._cmp) for Liskov substitutability; our
         # naive/aware handling doesn't need the distinction it exists for
         # since we already treat any unpopulated field as an ambiguous match.
         del allow_mixed
-        if not isinstance(other, (FhirDateTime, datetime, date)):
+        if not isinstance(other, (FhirDateTime, FhirDate, datetime, date)):
             msg = f"Cannot compare FhirDateTime and {type(other).__name__}"
             raise TypeError(msg)
 
@@ -516,46 +875,20 @@ class FhirDateTime(_DateTime, datetime):
         diff = self - other
         if diff.days < 0:
             return -1
-        return (diff and 1) or 0
+        return 1 if diff else 0
 
-    def __eq__(self, other: object) -> bool:
-        # Unlike ordering comparisons, == must accept arbitrary objects and
-        # defer via NotImplemented rather than raise — otherwise routine
-        # operations like `x in some_dict`/`x in some_set` crash instead of
-        # just returning False when `x` happens to collide with a
-        # FhirDateTime's hash bucket.
-        if not isinstance(other, (FhirDateTime, datetime, date)):
-            return NotImplemented
-        return self._cmp(other) == 0
+    def __str__(self) -> str:
+        """Convert to string, for str().
 
-    def __ne__(self, other: object) -> bool:
-        if not isinstance(other, (FhirDateTime, datetime, date)):
-            return NotImplemented
-        return self._cmp(other) != 0
-
-    def __le__(self, other: ComparableTypes) -> bool:
-        return self._cmp(other) <= 0
-
-    def __lt__(self, other: ComparableTypes) -> bool:
-        return self._cmp(other) < 0
-
-    def __ge__(self, other: ComparableTypes) -> bool:
-        return self._cmp(other) >= 0
-
-    def __gt__(self, other: ComparableTypes) -> bool:
-        return self._cmp(other) > 0
-
-    def __hash__(self) -> int:
-        """Hash consistently with this class's equality semantics.
-
-        ``_cmp`` only ever reaches a non-ambiguous verdict once it finds a
-        populated field on both sides that differs; if either side is
-        missing a field, comparison short-circuits to "equal". Year is the
-        one field always populated, so any two objects that compare equal
-        necessarily share the same year — hashing on year alone satisfies
-        ``a == b -> hash(a) == hash(b)``.
+        Explicit override needed even though it's otherwise identical to
+        the inherited behavior: ``FhirDate`` binds ``__str__ = isoformat``
+        directly to its own (date-only) function object, and since
+        ``FhirDate`` precedes ``_DateTime`` in this class's MRO, that alias
+        would shadow ``_DateTime.__str__``'s polymorphic
+        ``self.isoformat(sep=" ")`` call, silently truncating the time
+        portion of every value.
         """
-        return hash(self._year)
+        return self.isoformat(sep=" ")
 
     def __repr__(self) -> str:
         """Convert to formal string, for repr()."""
@@ -602,4 +935,21 @@ class FhirDateTime(_DateTime, datetime):
         return val
 
 
-ComparableTypes = FhirDateTime | datetime | date
+# Same rationale as FhirDate.min/.max above: without these, FhirDateTime.min
+# would resolve via inheritance to FhirDate.min (a FhirDate, not even a
+# FhirDateTime) rather than the vendored _DateTime.min/.max.
+# tzinfo=UTC (not naive, unlike stdlib's own datetime.min/.max): now that a
+# time component always requires a timezone, a naive .min/.max would be
+# rejected by the same rule that applies to every other construction path.
+# UTC is the canonical choice here, matching _EPOCH's convention in the
+# vendored module.
+FhirDateTime.min = FhirDateTime(1, 1, 1, 0, 0, tzinfo=UTC)
+FhirDateTime.max = FhirDateTime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)
+
+# Defined after both classes since `X | Y` is a runtime expression, not a
+# deferred annotation (`from __future__ import annotations` only defers
+# annotations, not plain assignments) -- it needs FhirDate/FhirDateTime to
+# already exist. Used as annotations elsewhere in this module, which *are*
+# deferred, so the forward references there are fine regardless of order.
+ComparableDateTypes = FhirDate | date
+ComparableDateTimeTypes = FhirDateTime | FhirDate | datetime | date

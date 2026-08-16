@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 
-from fhirdatetime import ComparableTypes, FhirDateTime
+from fhirdatetime import ComparableDateTimeTypes, FhirDateTime
 
 
 def idfn(val: object) -> str:
@@ -30,15 +30,17 @@ eq = [
         FhirDateTime(year=2020, month=1, day=6),
     ),
     (
-        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30),
-        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30),
+        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30, tzinfo=utc),
+        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30, tzinfo=utc),
     ),
     (
-        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
-        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495, tzinfo=utc),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495, tzinfo=utc),
     ),
     (
-        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
+        # Aware FhirDateTime vs. naive real datetime: still comparable, since
+        # _cmp treats either side missing tzinfo as ambiguous, not mismatched.
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495, tzinfo=utc),
         datetime(2020, 1, 6, 12, 30, 8, 209495),
     ),
     (
@@ -62,7 +64,7 @@ eq = [
         FhirDateTime(2020, 1, 6),
     ),
     (
-        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495, tzinfo=utc),
         date(2020, 1, 6),
     ),
     (
@@ -140,7 +142,7 @@ lt = [(b, a) for a, b in gt]
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), eq, ids=idfn)
-def test_eq(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_eq(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for equality."""
     assert obj_a == obj_b
 
@@ -153,65 +155,65 @@ def test_eq_fail(obj_a: object, obj_b: object) -> None:
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), gt + lt, ids=idfn)
-def test_ne(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_ne(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for inequality."""
     assert obj_a != obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), eq, ids=idfn)
 @pytest.mark.xfail(raises=AssertionError, strict=True)
-def test_ne_fail(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_ne_fail(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for inequality that should fail."""
     assert obj_a != obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), eq + gt, ids=idfn)
-def test_ge(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_ge(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for greater than or equal to."""
     assert obj_a >= obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), lt, ids=idfn)
 @pytest.mark.xfail(raises=AssertionError, strict=True)
-def test_ge_fail(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_ge_fail(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for greater than or equal to that should fail."""
     assert obj_a >= obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), gt, ids=idfn)
-def test_gt(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_gt(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for greater than."""
     assert obj_a > obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), eq + lt, ids=idfn)
 @pytest.mark.xfail(raises=AssertionError, strict=True)
-def test_gt_fail(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_gt_fail(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for greater than that should fail."""
     assert obj_a > obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), eq + lt, ids=idfn)
-def test_le(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_le(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for less than or equal."""
     assert obj_a <= obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), gt, ids=idfn)
 @pytest.mark.xfail(raises=AssertionError, strict=True)
-def test_le_fail(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_le_fail(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for less than or equal that should fail."""
     assert obj_a <= obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), lt, ids=idfn)
-def test_lt(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_lt(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for less than."""
     assert obj_a < obj_b
 
 
 @pytest.mark.parametrize(("obj_a", "obj_b"), eq + gt, ids=idfn)
 @pytest.mark.xfail(raises=AssertionError, strict=True)
-def test_lt_fail(obj_a: ComparableTypes, obj_b: ComparableTypes) -> None:
+def test_lt_fail(obj_a: ComparableDateTimeTypes, obj_b: ComparableDateTimeTypes) -> None:
     """Tests for less than that should fail."""
     assert obj_a < obj_b

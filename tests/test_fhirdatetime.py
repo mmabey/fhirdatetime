@@ -21,7 +21,7 @@ random.seed()
 
 def test_version() -> None:
     """Check library version is what it should be."""
-    ver = "0.2.0"
+    ver = "1.0.0"
     assert __version__ == ver
     with Path("pyproject.toml").open() as proj:
         for line in proj:
@@ -76,7 +76,7 @@ success_cases: list[dict] = [
     {"year": 2011},
     {"year": 1909, "month": 9},
     {"year": 30, "month": 2, "day": 28},
-    {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54},
+    {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54, "tzinfo": UTC},
     {
         "year": 2030,
         "month": 2,
@@ -85,8 +85,9 @@ success_cases: list[dict] = [
         "minute": 53,
         "second": 6,
         "microsecond": 999_999,  # Max value for microsecond
+        "tzinfo": UTC,
     },
-    {"year": datetime(2011, 9, 12, 14, 53)},
+    {"year": datetime(2011, 9, 12, 14, 53, tzinfo=UTC)},
     {
         "year": datetime(
             2020,
@@ -102,7 +103,7 @@ success_cases: list[dict] = [
     {"year": "2011"},
     {"year": "2011-09"},
     {"year": "2011-09-12"},
-    {"year": "2011-09-12T12:14"},
+    {"year": "2011-09-12T12:14-06:00"},
     {"year": "2011-09-12T12:14:31-06:00"},
     {"year": "2016-01-26T21:58:41.000Z"},
 ]
@@ -139,6 +140,7 @@ fail_value_cases: list[dict] = [
         "hour": 23,
         "minute": 0,
         "second": 60,
+        "tzinfo": UTC,
     },
     {  # microsecond out of range
         "year": 2030,
@@ -148,6 +150,7 @@ fail_value_cases: list[dict] = [
         "minute": 0,
         "second": 6,
         "microsecond": 1_999_999,
+        "tzinfo": UTC,
     },
     {"year": "2011-09-1212:14"},  # Missing spacer, fromisoformat fails
     {"year": 2021, "day": 13},  # No month
@@ -155,6 +158,7 @@ fail_value_cases: list[dict] = [
     {"year": 2021, "month": 2, "day": 28, "minute": 59},  # No hour
     {"year": 2021, "month": 2, "day": 28, "hour": 23},  # No Minute
     {"year": 2021, "month": 2, "day": 28, "tzinfo": UTC},  # No time
+    {"year": 2021, "month": 2, "day": 28, "hour": 23, "minute": 59},  # Time without tzinfo
     {"year": 2021, "month": 1, "day": 1, "fold": 2},  # fold out of range
 ]
 
@@ -286,6 +290,26 @@ def test_other_methods() -> None:
     assert str(FhirDateTime("2020-05-04")) == "2020-05-04"
 
 
+def test_str_includes_time_portion() -> None:
+    """str() on a time-bearing FhirDateTime must include the time, not just the date.
+
+    Regression test for an MRO-shadowing bug found during the core-class
+    design review: FhirDate binds `__str__ = isoformat` directly to its
+    own (date-only) function object. Since FhirDate precedes _DateTime in
+    FhirDateTime's MRO, that alias would shadow _DateTime.__str__'s
+    polymorphic `self.isoformat(sep=" ")` call for any FhirDateTime that
+    didn't explicitly override __str__ itself -- silently truncating the
+    time portion. FhirDateTime now has its own explicit __str__; this
+    guards against that regressing silently again.
+    """
+    dt = FhirDateTime(2020, 5, 4, 13, 42, 54, tzinfo=UTC)
+    assert str(dt) == dt.isoformat(sep=" ")
+    assert str(dt) == "2020-05-04 13:42:54+00:00"
+
+    # Date-only is unaffected either way (no time to truncate).
+    assert str(FhirDateTime(2020, 5, 4)) == "2020-05-04"
+
+
 def test_isocalendar_fields() -> None:
     """isocalendar() returns a named-tuple-like object with named attribute access."""
     dt = FhirDateTime(2020, 5, 4)
@@ -294,6 +318,31 @@ def test_isocalendar_fields() -> None:
     assert ic.week == 19
     assert ic.weekday == 1
     assert repr(ic) == "IsoCalendarDate(year=2020, week=19, weekday=1)"
+
+
+def test_leap_second_normalized_to_59_on_parse() -> None:
+    """fromisoformat() accepts a FHIR-legal leap second (:60) by normalizing it to :59.
+
+    FHIR's dateTime grammar explicitly allows a leap second, but this
+    library never produces one -- per FHIR's own guidance ("applications
+    reading times SHOULD accept and handle leap seconds gracefully, and
+    applications producing them MAY choose to avoid encoding leap
+    seconds"). Direct construction still rejects second=60 outright; only
+    parsing normalizes it.
+    """
+    # Numeric-offset path (vendored _DateTime.fromisoformat).
+    assert FhirDateTime.fromisoformat("2015-06-30T23:59:60+00:00") == FhirDateTime(2015, 6, 30, 23, 59, 59, tzinfo=UTC)
+    # Z-literal path (the strptime-based fallback).
+    assert FhirDateTime.fromisoformat("2015-06-30T23:59:60Z") == FhirDateTime(2015, 6, 30, 23, 59, 59, tzinfo=UTC)
+    # Fractional seconds preserved through normalization.
+    leap_with_fraction = FhirDateTime.fromisoformat("2015-06-30T23:59:60.5Z")
+    assert leap_with_fraction.second == 59
+    assert leap_with_fraction.microsecond == 500_000
+    # A normal :59 is left alone (not a false-positive match).
+    assert FhirDateTime.fromisoformat("2015-06-30T23:59:59Z") == FhirDateTime(2015, 6, 30, 23, 59, 59, tzinfo=UTC)
+
+    with pytest.raises(ValueError, match=r"second must be in 0\.\.59"):
+        FhirDateTime(2015, 6, 30, 23, 59, 60, tzinfo=UTC)
 
 
 def test_offset_with_seconds_in_isoformat() -> None:
@@ -308,9 +357,13 @@ def test_offset_with_seconds_in_isoformat() -> None:
 
 
 def test_tzname() -> None:
-    """tzname() reflects the tzinfo attached to the instance."""
+    """tzname() reflects the tzinfo attached to the instance.
+
+    No naive-instance case: a time-bearing FhirDateTime always has a tzinfo
+    now (FHIR requires it), so tzname()'s "no tzinfo -> None" branch is only
+    reachable via a date-only instance, which has no tzname() concept at all.
+    """
     assert FhirDateTime(2020, 1, 1, 0, 0, tzinfo=UTC).tzname() == "UTC"
-    assert FhirDateTime(2020, 1, 1, 0, 0).tzname() is None
 
 
 def test_strftime_and_format() -> None:
@@ -325,7 +378,7 @@ def test_strftime_and_format() -> None:
 
 def test_ctime() -> None:
     """ctime() produces the classic ctime()-style string."""
-    dt = FhirDateTime(2020, 5, 4, 13, 42, 54)
+    dt = FhirDateTime(2020, 5, 4, 13, 42, 54, tzinfo=UTC)
     assert dt.ctime() == "Mon May  4 13:42:54 2020"
 
 
@@ -344,16 +397,47 @@ def test_from_native() -> None:
     compare_native(from_dt, dt_native)
 
 
+def test_tz_required_whenever_time_present() -> None:
+    """FHIR requires a timezone whenever a time is specified, enforced on every path.
+
+    Explicit-field construction goes through `_check_time_fields`; copying
+    from an existing naive real `datetime` (whether via `__init__`,
+    `from_native`, `now()`, or `fromtimestamp()`) goes through the separate
+    `_replace_with` check instead -- both need covering, since fixing one
+    doesn't fix the other.
+    """
+    # Explicit fields, via _check_time_fields.
+    with pytest.raises(ValueError, match="requires a timezone"):
+        FhirDateTime(2021, 3, 15, 23, 56)
+
+    # Date-only construction is unaffected: no time means no tz requirement.
+    assert FhirDateTime(2021, 3, 15).tzinfo is None
+
+    # Copying from an existing naive real datetime, via _replace_with.
+    naive_native = datetime(2021, 3, 15, 23, 56)
+    with pytest.raises(ValueError, match="requires a timezone"):
+        FhirDateTime(naive_native)
+    with pytest.raises(ValueError, match="requires a timezone"):
+        FhirDateTime.from_native(naive_native)
+
+    # Copying from a naive real date (no time at all) is unaffected.
+    assert FhirDateTime(date(2021, 3, 15)).tzinfo is None
+
+
 def test_repr() -> None:
-    """__repr__ trims unset trailing fields and appends tzinfo/fold when set."""
+    """__repr__ trims unset trailing fields and appends tzinfo/fold when set.
+
+    No naive time-bearing case (e.g. hour/minute set, no tzinfo, no fold):
+    a time-bearing FhirDateTime always has a tzinfo now, so that combination
+    can't be constructed. The "no tzinfo" trimming branch is still exercised
+    by the date-only cases below, where tzinfo is never applicable anyway.
+    """
     assert repr(FhirDateTime(2020)) == "fhirdatetime.FhirDateTime(2020)"
     assert repr(FhirDateTime(2020, 5, 4)) == "fhirdatetime.FhirDateTime(2020, 5, 4)"
-    assert repr(FhirDateTime(2020, 5, 4, 13, 42)) == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42)"
     assert (
         repr(FhirDateTime(2020, 5, 4, 13, 42, tzinfo=UTC))
         == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, tzinfo=datetime.timezone.utc)"
     )
-    assert repr(FhirDateTime(2020, 5, 4, 13, 42, fold=1)) == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, fold=1)"
     assert (
         repr(FhirDateTime(2020, 5, 4, 13, 42, tzinfo=UTC, fold=1))
         == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, tzinfo=datetime.timezone.utc, fold=1)"
