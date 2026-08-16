@@ -76,7 +76,7 @@ success_cases: list[dict] = [
     {"year": 2011},
     {"year": 1909, "month": 9},
     {"year": 30, "month": 2, "day": 28},
-    {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54},
+    {"year": 2030, "month": 2, "day": 28, "hour": 14, "minute": 54, "tzinfo": UTC},
     {
         "year": 2030,
         "month": 2,
@@ -85,8 +85,9 @@ success_cases: list[dict] = [
         "minute": 53,
         "second": 6,
         "microsecond": 999_999,  # Max value for microsecond
+        "tzinfo": UTC,
     },
-    {"year": datetime(2011, 9, 12, 14, 53)},
+    {"year": datetime(2011, 9, 12, 14, 53, tzinfo=UTC)},
     {
         "year": datetime(
             2020,
@@ -102,7 +103,7 @@ success_cases: list[dict] = [
     {"year": "2011"},
     {"year": "2011-09"},
     {"year": "2011-09-12"},
-    {"year": "2011-09-12T12:14"},
+    {"year": "2011-09-12T12:14-06:00"},
     {"year": "2011-09-12T12:14:31-06:00"},
     {"year": "2016-01-26T21:58:41.000Z"},
 ]
@@ -139,6 +140,7 @@ fail_value_cases: list[dict] = [
         "hour": 23,
         "minute": 0,
         "second": 60,
+        "tzinfo": UTC,
     },
     {  # microsecond out of range
         "year": 2030,
@@ -148,6 +150,7 @@ fail_value_cases: list[dict] = [
         "minute": 0,
         "second": 6,
         "microsecond": 1_999_999,
+        "tzinfo": UTC,
     },
     {"year": "2011-09-1212:14"},  # Missing spacer, fromisoformat fails
     {"year": 2021, "day": 13},  # No month
@@ -155,6 +158,7 @@ fail_value_cases: list[dict] = [
     {"year": 2021, "month": 2, "day": 28, "minute": 59},  # No hour
     {"year": 2021, "month": 2, "day": 28, "hour": 23},  # No Minute
     {"year": 2021, "month": 2, "day": 28, "tzinfo": UTC},  # No time
+    {"year": 2021, "month": 2, "day": 28, "hour": 23, "minute": 59},  # Time without tzinfo
     {"year": 2021, "month": 1, "day": 1, "fold": 2},  # fold out of range
 ]
 
@@ -308,9 +312,13 @@ def test_offset_with_seconds_in_isoformat() -> None:
 
 
 def test_tzname() -> None:
-    """tzname() reflects the tzinfo attached to the instance."""
+    """tzname() reflects the tzinfo attached to the instance.
+
+    No naive-instance case: a time-bearing FhirDateTime always has a tzinfo
+    now (FHIR requires it), so tzname()'s "no tzinfo -> None" branch is only
+    reachable via a date-only instance, which has no tzname() concept at all.
+    """
     assert FhirDateTime(2020, 1, 1, 0, 0, tzinfo=UTC).tzname() == "UTC"
-    assert FhirDateTime(2020, 1, 1, 0, 0).tzname() is None
 
 
 def test_strftime_and_format() -> None:
@@ -325,7 +333,7 @@ def test_strftime_and_format() -> None:
 
 def test_ctime() -> None:
     """ctime() produces the classic ctime()-style string."""
-    dt = FhirDateTime(2020, 5, 4, 13, 42, 54)
+    dt = FhirDateTime(2020, 5, 4, 13, 42, 54, tzinfo=UTC)
     assert dt.ctime() == "Mon May  4 13:42:54 2020"
 
 
@@ -344,16 +352,47 @@ def test_from_native() -> None:
     compare_native(from_dt, dt_native)
 
 
+def test_tz_required_whenever_time_present() -> None:
+    """FHIR requires a timezone whenever a time is specified, enforced on every path.
+
+    Explicit-field construction goes through `_check_time_fields`; copying
+    from an existing naive real `datetime` (whether via `__init__`,
+    `from_native`, `now()`, or `fromtimestamp()`) goes through the separate
+    `_replace_with` check instead -- both need covering, since fixing one
+    doesn't fix the other.
+    """
+    # Explicit fields, via _check_time_fields.
+    with pytest.raises(ValueError, match="requires a timezone"):
+        FhirDateTime(2021, 3, 15, 23, 56)
+
+    # Date-only construction is unaffected: no time means no tz requirement.
+    assert FhirDateTime(2021, 3, 15).tzinfo is None
+
+    # Copying from an existing naive real datetime, via _replace_with.
+    naive_native = datetime(2021, 3, 15, 23, 56)
+    with pytest.raises(ValueError, match="requires a timezone"):
+        FhirDateTime(naive_native)
+    with pytest.raises(ValueError, match="requires a timezone"):
+        FhirDateTime.from_native(naive_native)
+
+    # Copying from a naive real date (no time at all) is unaffected.
+    assert FhirDateTime(date(2021, 3, 15)).tzinfo is None
+
+
 def test_repr() -> None:
-    """__repr__ trims unset trailing fields and appends tzinfo/fold when set."""
+    """__repr__ trims unset trailing fields and appends tzinfo/fold when set.
+
+    No naive time-bearing case (e.g. hour/minute set, no tzinfo, no fold):
+    a time-bearing FhirDateTime always has a tzinfo now, so that combination
+    can't be constructed. The "no tzinfo" trimming branch is still exercised
+    by the date-only cases below, where tzinfo is never applicable anyway.
+    """
     assert repr(FhirDateTime(2020)) == "fhirdatetime.FhirDateTime(2020)"
     assert repr(FhirDateTime(2020, 5, 4)) == "fhirdatetime.FhirDateTime(2020, 5, 4)"
-    assert repr(FhirDateTime(2020, 5, 4, 13, 42)) == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42)"
     assert (
         repr(FhirDateTime(2020, 5, 4, 13, 42, tzinfo=UTC))
         == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, tzinfo=datetime.timezone.utc)"
     )
-    assert repr(FhirDateTime(2020, 5, 4, 13, 42, fold=1)) == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, fold=1)"
     assert (
         repr(FhirDateTime(2020, 5, 4, 13, 42, tzinfo=UTC, fold=1))
         == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, tzinfo=datetime.timezone.utc, fold=1)"

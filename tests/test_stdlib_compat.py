@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import copy
 import pickle
-import warnings
 from datetime import UTC, date, datetime, time, timedelta, timezone, tzinfo
 
 import pytest
@@ -36,7 +35,7 @@ def test_pickle_round_trip_full_precision() -> None:
         FhirDateTime(2021),
         FhirDateTime(2021, 4),
         FhirDateTime(2021, 4, 12),
-        FhirDateTime(2021, 4, 12, 8, 30),
+        FhirDateTime(2021, 4, 12, 8, 30, tzinfo=UTC),
         FhirDateTime(2021, 4, 12, 8, 30, tzinfo=timezone(timedelta(hours=-6))),
     ],
 )
@@ -67,7 +66,7 @@ def test_strftime() -> None:
 
 def test_ctime() -> None:
     """ctime() produces the classic ctime()-style string."""
-    assert FhirDateTime(2020, 5, 4, 13, 42, 54).ctime() == "Mon May  4 13:42:54 2020"
+    assert FhirDateTime(2020, 5, 4, 13, 42, 54, tzinfo=UTC).ctime() == "Mon May  4 13:42:54 2020"
 
 
 def test_combine() -> None:
@@ -94,20 +93,14 @@ def test_replace_preserves_tzinfo_by_default() -> None:
     assert moved.year == 2021
 
 
-def test_fromtimestamp_naive() -> None:
-    """fromtimestamp() without a tz matches native datetime.fromtimestamp()."""
-    ts = 1_588_599_774.295815
-    fhir = FhirDateTime.fromtimestamp(ts)
-    native = datetime.fromtimestamp(ts)
-    assert (fhir.year, fhir.month, fhir.day, fhir.hour, fhir.minute, fhir.second) == (
-        native.year,
-        native.month,
-        native.day,
-        native.hour,
-        native.minute,
-        native.second,
-    )
-    assert fhir.tzinfo is None
+def test_fromtimestamp_without_tz_raises() -> None:
+    """fromtimestamp() with no `tz` argument would produce a naive instance -- now an error.
+
+    FHIR requires a timezone whenever a time is present, enforced on every
+    construction path, including this one (`from_native` -> `_replace_with`).
+    """
+    with pytest.raises(ValueError, match="requires a timezone"):
+        FhirDateTime.fromtimestamp(1_588_599_774.295815)
 
 
 @pytest.mark.parametrize("tz", [UTC, timezone(timedelta(hours=5)), timezone(timedelta(hours=-6))])
@@ -126,44 +119,40 @@ def test_fromtimestamp_aware(tz: timezone) -> None:
     assert fhir.tzinfo == tz
 
 
-def test_utcfromtimestamp() -> None:
-    """utcfromtimestamp() produces a naive UTC instance."""
+def test_utcfromtimestamp_is_utc_aware() -> None:
+    """utcfromtimestamp() attaches UTC tzinfo, unlike stdlib's deprecated naive version.
+
+    Unlike `fromtimestamp()`, there's no `tz` argument for a caller to fix a
+    naive result with, and FHIR requires a timezone whenever a time is
+    present -- so this overrides the vendored/stdlib "naive by convention"
+    behavior rather than leaving it permanently unusable.
+    """
     ts = 1_588_599_774.295815
     fhir = FhirDateTime.utcfromtimestamp(ts)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        native = datetime.utcfromtimestamp(ts)  # ty: ignore[deprecated]
-    assert (fhir.year, fhir.month, fhir.day, fhir.hour, fhir.minute, fhir.second) == (
-        native.year,
-        native.month,
-        native.day,
-        native.hour,
-        native.minute,
-        native.second,
-    )
-    assert fhir.tzinfo is None
+    assert fhir.tzinfo == UTC
+    assert fhir == FhirDateTime.fromtimestamp(ts, tz=UTC)
 
 
 def test_now_and_utcnow() -> None:
-    """now()/now(tz)/utcnow() return sane, current FhirDateTime instances."""
+    """now(tz) returns a sane, current, aware FhirDateTime instance; utcnow() attaches UTC.
+
+    now() without a `tz` argument still raises -- unlike utcnow(), it has a
+    `tz` parameter a caller could have supplied, so silently defaulting it
+    would mask a likely mistake rather than fix an unusable method.
+    """
     before = datetime.now(UTC)
-    naive = FhirDateTime.now()
     aware = FhirDateTime.now(UTC)
     utc_now = FhirDateTime.utcnow()
     after = datetime.now(UTC)
 
-    assert isinstance(naive, FhirDateTime)
-    assert naive.tzinfo is None
+    assert isinstance(aware, FhirDateTime)
     assert aware.tzinfo == UTC
     assert before <= aware <= after
-    assert before.replace(tzinfo=None) <= utc_now <= after.replace(tzinfo=None)
+    assert utc_now.tzinfo == UTC
+    assert before <= utc_now <= after
 
-
-def test_naive_timestamp_matches_native() -> None:
-    """timestamp() on a naive instance goes through the vendored _mktime()."""
-    fhir = FhirDateTime(2020, 5, 4, 13, 42, 54, 295815)
-    native = datetime(2020, 5, 4, 13, 42, 54, 295815)
-    assert fhir.timestamp() == native.timestamp()
+    with pytest.raises(ValueError, match="requires a timezone"):
+        FhirDateTime.now()
 
 
 def test_astimezone() -> None:
@@ -213,9 +202,9 @@ def test_arithmetic_on_partial_precision_raises(dt: FhirDateTime) -> None:
     with pytest.raises(TypeError, match="unpopulated"):
         _ = dt + timedelta(days=1)
     with pytest.raises(TypeError, match="unpopulated"):
-        _ = dt - FhirDateTime(2020, 5, 4, 12, 0)
+        _ = dt - FhirDateTime(2020, 5, 4, 12, 0, tzinfo=UTC)
     with pytest.raises(TypeError, match="unpopulated"):
-        _ = FhirDateTime(2020, 5, 4, 12, 0) - dt
+        _ = FhirDateTime(2020, 5, 4, 12, 0, tzinfo=UTC) - dt
 
 
 def test_min_max_are_fhirdatetime_instances() -> None:
@@ -228,8 +217,8 @@ def test_min_max_are_fhirdatetime_instances() -> None:
     """
     assert isinstance(FhirDateTime.min, FhirDateTime)
     assert isinstance(FhirDateTime.max, FhirDateTime)
-    assert FhirDateTime.min == FhirDateTime(1, 1, 1, 0, 0)
-    assert FhirDateTime.max == FhirDateTime(9999, 12, 31, 23, 59, 59, 999999)
+    assert FhirDateTime.min == FhirDateTime(1, 1, 1, 0, 0, tzinfo=UTC)
+    assert FhirDateTime.max == FhirDateTime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)
 
 
 def test_rsub_real_datetime_minus_fhir_datetime() -> None:
@@ -240,8 +229,8 @@ def test_rsub_real_datetime_minus_fhir_datetime() -> None:
     implementation reads the frozen `(1, 1, 1)` placeholder struct instead
     of this instance's real values, silently computing a wrong timedelta.
     """
-    real = datetime(2020, 5, 10, 12, 0)
-    fhir = FhirDateTime(2020, 5, 4, 6, 0)
+    real = datetime(2020, 5, 10, 12, 0, tzinfo=UTC)
+    fhir = FhirDateTime(2020, 5, 4, 6, 0, tzinfo=UTC)
     assert real - fhir == timedelta(days=6, hours=6)
 
 
@@ -253,9 +242,15 @@ def test_sub_equal_offset_different_tzinfo_objects() -> None:
 
 
 def test_sub_naive_and_aware_raises() -> None:
-    """Subtracting a naive instance from an aware one is a TypeError."""
+    """Subtracting a naive instance from an aware one is a TypeError.
+
+    Uses a real naive `datetime` as the naive side, not a naive
+    `FhirDateTime` -- the latter can no longer be constructed at all, since
+    FHIR requires a timezone whenever a time is present. This still
+    exercises the same naive/aware-mixing check in `_DateTime.__sub__`.
+    """
     aware = FhirDateTime(2020, 5, 4, 12, 0, tzinfo=UTC)
-    naive = FhirDateTime(2020, 5, 4, 10, 0)
+    naive = datetime(2020, 5, 4, 10, 0)
     with pytest.raises(TypeError, match="cannot mix naive and timezone-aware time"):
         _ = aware - naive
 
@@ -301,13 +296,6 @@ def test_timetuple_with_dst_aware_tzinfo() -> None:
     assert dt_unknown_dst.timetuple().tm_isdst == -1
 
 
-def test_dst_and_timetuple_on_naive_instance() -> None:
-    """dst()/timetuple() on a naive (no tzinfo) instance short-circuit to None/-1."""
-    dt = FhirDateTime(2020, 7, 4, 13, 42, 54)
-    assert dt.dst() is None
-    assert dt.timetuple().tm_isdst == -1
-
-
 def test_strftime_all_format_codes() -> None:
     """strftime()/%f/%z/%Z cover the microsecond, offset-sign, and offset-precision branches."""
     dt = FhirDateTime(2020, 5, 4, 13, 42, 54, 123456, tzinfo=timezone(timedelta(hours=-5)))
@@ -328,10 +316,10 @@ def test_strftime_all_format_codes() -> None:
     )
     assert dt_us.strftime("%z") == "+010000.500000"  # Microsecond-precision offset branch
 
-    naive = FhirDateTime(2020, 5, 4, 13, 42, 54)
-    assert naive.strftime("%z") == ""
-    assert naive.strftime("%Z") == ""
-    assert naive.strftime("100%") == "100%"  # Trailing bare '%' at end of format string
+    # No naive case: %z/%Z returning "" for a naive instance is now dead code
+    # -- a time-bearing FhirDateTime always has a tzinfo. This still covers
+    # the trailing-bare-'%' format-string edge case, just on an aware instance.
+    assert dt.strftime("100%") == "100%"
 
 
 def test_isocalendar_date_pickle() -> None:
@@ -350,11 +338,10 @@ def test_astimezone_branches() -> None:
     with pytest.raises(TypeError, match="tz argument must be an instance of tzinfo"):
         aware.astimezone("not a tzinfo")
 
-    naive = FhirDateTime(2020, 5, 4, 13, 42, 54)
-    local = naive.astimezone()  # No arg: converts using the system local timezone
-    expected = datetime(2020, 5, 4, 13, 42, 54).astimezone()
-    assert local.utcoffset() == expected.utcoffset()
-    assert local.tzname() == expected.tzname()
+    # No naive case: `_local_timezone`'s naive-self branch is now dead code
+    # -- a time-bearing FhirDateTime always has a tzinfo. No-arg astimezone()
+    # is still exercised below, on an already-aware instance.
+    expected = datetime(2020, 5, 4, 13, 42, 54, tzinfo=UTC).astimezone()
 
     # No arg on an already-aware instance: still resolves the *system* local
     # timezone (not a no-op), exercising `_local_timezone`'s aware-self path.

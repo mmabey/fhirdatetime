@@ -30,15 +30,17 @@ eq = [
         FhirDateTime(year=2020, month=1, day=6),
     ),
     (
-        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30),
-        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30),
+        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30, tzinfo=utc),
+        FhirDateTime(year=2020, month=1, day=6, hour=12, minute=30, tzinfo=utc),
     ),
     (
-        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
-        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495, tzinfo=utc),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495, tzinfo=utc),
     ),
     (
-        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
+        # Aware FhirDateTime vs. naive real datetime: still comparable, since
+        # _cmp treats either side missing tzinfo as ambiguous, not mismatched.
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495, tzinfo=utc),
         datetime(2020, 1, 6, 12, 30, 8, 209495),
     ),
     (
@@ -62,7 +64,7 @@ eq = [
         FhirDateTime(2020, 1, 6),
     ),
     (
-        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495),
+        FhirDateTime(2020, 1, 6, 12, 30, 8, 209495, tzinfo=utc),
         date(2020, 1, 6),
     ),
     (

@@ -126,7 +126,7 @@ def _check_date_fields(year: int, month: _Field, day: _Field) -> DateFields:
     return year, month, day
 
 
-def _check_time_fields(  # noqa: C901, PLR0913, PLR0917
+def _check_time_fields(  # noqa: C901, PLR0912, PLR0913, PLR0917
     day: _Field,
     hour: _Field,
     minute: _Field,
@@ -164,6 +164,13 @@ def _check_time_fields(  # noqa: C901, PLR0913, PLR0917
         raise ValueError(msg)
     if tzinfo is not None and hour is None:
         msg = "Cannot specify timezone without hour and minute"
+        raise ValueError(msg)
+    if hour is not None and tzinfo is None:
+        # FHIR's dateTime grammar requires a timezone offset the moment any
+        # time component is present at all -- there's no such thing as a
+        # naive or offset-less time in FHIR (unlike this class's own
+        # partial-precision cascade for year/month/day).
+        msg = "FHIR dateTime requires a timezone whenever a time is specified"
         raise ValueError(msg)
 
     # Second checks
@@ -592,18 +599,28 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
             pass
 
         for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
-            # These formats need to have the UTC timezone inserted after creation
             try:
-                return cls.strptime(date_string, fmt).replace(tzinfo=UTC)
+                # Parse via the real stdlib datetime, not cls.strptime: the
+                # latter would construct an intermediate *naive* FhirDateTime
+                # before tzinfo is attached, which now raises on its own
+                # (FHIR requires a timezone whenever a time is present).
+                # Build the final, already-aware instance in one shot instead.
+                parsed = datetime.strptime(date_string, fmt)  # noqa: DTZ007
             except ValueError:
-                pass
+                continue
+            return cls(
+                parsed.year,
+                parsed.month,
+                parsed.day,
+                parsed.hour,
+                parsed.minute,
+                parsed.second,
+                parsed.microsecond,
+                tzinfo=UTC,
+            )
 
-        for fmt in ("%Y-%m-%dT%H:%M:%S.%f%Z", "%Y-%m-%dT%H:%M:%S%Z"):
-            try:
-                return cls.strptime(date_string, fmt)
-            except ValueError as err:
-                last_err = err
-        raise last_err
+        msg = f"Invalid isoformat string: {date_string!r}"
+        raise ValueError(msg)
 
     @staticmethod
     def from_native(other: datetime | date) -> FhirDateTime:
@@ -635,6 +652,28 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
         :class:`datetime.datetime` instead of the vendored implementation.
         """
         return cls.from_native(datetime.now(tz))
+
+    @classmethod
+    def utcnow(cls) -> FhirDateTime:
+        """Construct a FhirDateTime for the current UTC date and time, timezone-aware.
+
+        Unlike stdlib's deprecated ``datetime.utcnow()`` (naive by
+        convention), this attaches UTC ``tzinfo`` directly: FHIR requires a
+        timezone whenever a time is present, so a naive result here would
+        be permanently unusable rather than merely inconvenient. Equivalent
+        to ``now(UTC)``.
+        """
+        return cls.now(UTC)
+
+    @classmethod
+    def utcfromtimestamp(cls, t: float) -> FhirDateTime:
+        """Construct a FhirDateTime from a POSIX timestamp, UTC and timezone-aware.
+
+        See :meth:`utcnow` for why this attaches UTC ``tzinfo`` rather than
+        matching stdlib's deprecated (naive) ``datetime.utcfromtimestamp()``.
+        Equivalent to ``fromtimestamp(t, UTC)``.
+        """
+        return cls.fromtimestamp(t, UTC)
 
     def __reduce_ex__(self, protocol: SupportsIndex) -> tuple[type[Self], tuple[str]]:
         """Support pickling and :func:`copy.deepcopy`.
@@ -672,6 +711,16 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
             self._microsecond = None
             self._tzinfo = None
             self._fold = 0
+
+        if self._hour is not None and self._tzinfo is None:
+            # Same FHIR rule as `_check_time_fields`, enforced here too since
+            # `now()`/`fromtimestamp()`/`from_native()`, and constructing
+            # from an existing date/datetime, all go through this method
+            # rather than `_check_time_fields` -- e.g. `FhirDateTime.now()`
+            # with no `tz` argument would otherwise silently produce a
+            # non-compliant naive-with-time instance.
+            msg = "FHIR dateTime requires a timezone whenever a time is specified"
+            raise ValueError(msg)
 
     def _require_full_precision(self) -> None:
         """Extend :meth:`FhirDate._require_full_precision` to also require hour/minute.
@@ -869,8 +918,13 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
 # Same rationale as FhirDate.min/.max above: without these, FhirDateTime.min
 # would resolve via inheritance to FhirDate.min (a FhirDate, not even a
 # FhirDateTime) rather than the vendored _DateTime.min/.max.
-FhirDateTime.min = FhirDateTime(1, 1, 1, 0, 0)
-FhirDateTime.max = FhirDateTime(9999, 12, 31, 23, 59, 59, 999999)
+# tzinfo=UTC (not naive, unlike stdlib's own datetime.min/.max): now that a
+# time component always requires a timezone, a naive .min/.max would be
+# rejected by the same rule that applies to every other construction path.
+# UTC is the canonical choice here, matching _EPOCH's convention in the
+# vendored module.
+FhirDateTime.min = FhirDateTime(1, 1, 1, 0, 0, tzinfo=UTC)
+FhirDateTime.max = FhirDateTime(9999, 12, 31, 23, 59, 59, 999999, tzinfo=UTC)
 
 # Defined after both classes since `X | Y` is a runtime expression, not a
 # deferred annotation (`from __future__ import annotations` only defers
