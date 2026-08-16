@@ -3,35 +3,30 @@ exclude: >
     \.egg-info
   )$
 repos:
-- repo: https://github.com/asottile/seed-isort-config
-  rev: v2.2.0
+# Local (not astral-sh/ruff-pre-commit): that repo pins its own ruff release
+# inside a managed venv, which can drift from the version uv.lock resolves
+# for this project (observed: pre-commit's ruff 0.13.3 vs. uv's 0.16.2,
+# producing different noqa/unused-suppression results for the same code).
+# Shelling out to `uv run ruff` keeps exactly one ruff version in play.
+- repo: local
   hooks:
-  - id: seed-isort-config
-    name: Finding third party Python imports
-- repo: https://github.com/pre-commit/mirrors-isort
-  rev: v5.8.0
-  hooks:
-  - id: isort
-    name: Reorder Python imports
-    additional_dependencies: ['toml']
+  - id: ruff-check
+    name: Lint with ruff
+    entry: uv run ruff check --force-exclude --fix
+    language: system
+    types_or: [python, pyi]
+    require_serial: true
+  - id: ruff-format
+    name: Format with ruff
+    entry: uv run ruff format --force-exclude
+    language: system
+    types_or: [python, pyi]
+    require_serial: true
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v3.4.0
+  rev: v6.0.0
   hooks:
   - id: check-merge-conflict
   - id: check-symlinks
   - id: end-of-file-fixer
-  - id: fix-encoding-pragma
   - id: mixed-line-ending
   - id: trailing-whitespace
-- repo: https://gitlab.com/pycqa/flake8
-  rev: 3.9.1
-  hooks:
-  - id: flake8
-    exclude: _datetime\.py|docs
-    args: ["--ignore=E501,D105,W503"]
-    additional_dependencies: ['pep8-naming', 'flake8-docstrings', 'pydocstyle<4.0', 'darglint']
-- repo: https://github.com/ambv/black
-  rev: 20.8b1
-  hooks:
-  - id: black
-    language_version: python3.9
