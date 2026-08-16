@@ -300,6 +300,31 @@ def test_isocalendar_fields() -> None:
     assert repr(ic) == "IsoCalendarDate(year=2020, week=19, weekday=1)"
 
 
+def test_leap_second_normalized_to_59_on_parse() -> None:
+    """fromisoformat() accepts a FHIR-legal leap second (:60) by normalizing it to :59.
+
+    FHIR's dateTime grammar explicitly allows a leap second, but this
+    library never produces one -- per FHIR's own guidance ("applications
+    reading times SHOULD accept and handle leap seconds gracefully, and
+    applications producing them MAY choose to avoid encoding leap
+    seconds"). Direct construction still rejects second=60 outright; only
+    parsing normalizes it.
+    """
+    # Numeric-offset path (vendored _DateTime.fromisoformat).
+    assert FhirDateTime.fromisoformat("2015-06-30T23:59:60+00:00") == FhirDateTime(2015, 6, 30, 23, 59, 59, tzinfo=UTC)
+    # Z-literal path (the strptime-based fallback).
+    assert FhirDateTime.fromisoformat("2015-06-30T23:59:60Z") == FhirDateTime(2015, 6, 30, 23, 59, 59, tzinfo=UTC)
+    # Fractional seconds preserved through normalization.
+    leap_with_fraction = FhirDateTime.fromisoformat("2015-06-30T23:59:60.5Z")
+    assert leap_with_fraction.second == 59
+    assert leap_with_fraction.microsecond == 500_000
+    # A normal :59 is left alone (not a false-positive match).
+    assert FhirDateTime.fromisoformat("2015-06-30T23:59:59Z") == FhirDateTime(2015, 6, 30, 23, 59, 59, tzinfo=UTC)
+
+    with pytest.raises(ValueError, match=r"second must be in 0\.\.59"):
+        FhirDateTime(2015, 6, 30, 23, 59, 60, tzinfo=UTC)
+
+
 def test_offset_with_seconds_in_isoformat() -> None:
     """isoformat() renders a UTC offset with non-zero seconds/microseconds."""
     tz = timezone(timedelta(hours=-6, seconds=5))

@@ -57,6 +57,10 @@ TIME_FIELDS = ("hour", "minute", "second", "microsecond")
 _y_pat = re.compile(r"^(\d{4})$")
 _ym_pat = re.compile(r"^(\d{4})-(\d{2})$")
 _ymd_pat = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
+# Matches a literal leap second (:60) in the seconds position of the time
+# portion only (the `T\d{2}:\d{2}:` anchor requires it to follow the
+# hour:minute of a time component, not just any ":60" substring).
+_leap_second_pat = re.compile(r"(T\d{2}:\d{2}:)60(\.\d+)?")
 _y_format = "{_year:04d}"
 _ym_format = _y_format + "-{_month:02d}"
 _ymd_format = _ym_format + "-{_day:02d}"
@@ -574,6 +578,15 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
     @classmethod
     def fromisoformat(cls, date_string: str) -> FhirDateTime:
         """Construct a FhirDateTime from the output of FhirDateTime.isoformat()."""
+        # FHIR's dateTime grammar explicitly allows a leap second (:60), but
+        # this library never produces one (isoformat()/construction still
+        # cap at :59) -- per FHIR's own guidance ("applications reading
+        # times SHOULD accept and handle leap seconds gracefully, and
+        # applications producing them MAY choose to avoid encoding leap
+        # seconds"), normalize it to :59 on parse rather than rejecting or
+        # attempting to store/round-trip it distinctly.
+        date_string = _leap_second_pat.sub(r"\g<1>59\2", date_string)
+
         # Check for shorter formats first. Handled one pattern at a time
         # (rather than looping and unpacking `*groups`) so each call site
         # has a fixed, statically-checkable arity.
