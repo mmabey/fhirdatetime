@@ -2,30 +2,89 @@ name: Release
 
 on:
   push:
-    tags:
-      - "*"
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
-  build:
+  # A merged PR only triggers a release if it bumped `version` in pyproject.toml.
+  # We detect that by checking whether a tag matching that version already exists.
+  # No "v" prefix: matches this repo's existing tag history (0.2.0, 0.1.0b8, ...).
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is-new: ${{ steps.check-tag.outputs.is-new }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: astral-sh/setup-uv@v10.0.1
+
+      - id: version
+        run: echo "version=$(uv version --short)" >> "$GITHUB_OUTPUT"
+
+      - id: check-tag
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "is-new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is-new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  test:
+    needs: check-version
+    if: needs.check-version.outputs.is-new == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+
       - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      - run: uv sync --locked
+
+      - run: uv run pytest
+
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.is-new == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
       - run: uv build
+
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: dist
           path: dist/
 
-  publish:
-    needs: build
+  release:
+    needs: [check-version, test, build]
+    if: needs.check-version.outputs.is-new == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      id-token: write
+      contents: write # create the git tag + GitHub release
+      id-token: write # PyPI trusted publishing (OIDC)
     steps:
       - uses: actions/download-artifact@v8.0.1
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          tag_name: ${{ needs.check-version.outputs.version }}
+          generate_release_notes: true
+          files: dist/*
