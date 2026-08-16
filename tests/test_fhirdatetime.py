@@ -6,17 +6,22 @@ import random
 import time as _time
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import pytest
 
 from fhirdatetime import FhirDateTime, __version__
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 random.seed()
 
 
 def test_version() -> None:
     """Check library version is what it should be."""
-    ver = "0.1.0b8"
+    ver = "0.2.0"
     assert __version__ == ver
     with Path("pyproject.toml").open() as proj:
         for line in proj:
@@ -105,6 +110,7 @@ success_cases: list[dict] = [
 fail_type_cases: list[dict] = [
     {"year": None},
     {"year": time(12, 15)},
+    {"year": 2021, "month": 2.0},  # float instead of int
 ]
 
 fail_value_cases: list[dict] = [
@@ -149,6 +155,7 @@ fail_value_cases: list[dict] = [
     {"year": 2021, "month": 2, "day": 28, "minute": 59},  # No hour
     {"year": 2021, "month": 2, "day": 28, "hour": 23},  # No Minute
     {"year": 2021, "month": 2, "day": 28, "tzinfo": UTC},  # No time
+    {"year": 2021, "month": 1, "day": 1, "fold": 2},  # fold out of range
 ]
 
 success_cases.extend(
@@ -277,3 +284,125 @@ def test_other_methods() -> None:
     assert str(FhirDateTime("2020")) == "2020"
     assert str(FhirDateTime("2020-05")) == "2020-05"
     assert str(FhirDateTime("2020-05-04")) == "2020-05-04"
+
+
+def test_isocalendar_fields() -> None:
+    """isocalendar() returns a named-tuple-like object with named attribute access."""
+    dt = FhirDateTime(2020, 5, 4)
+    ic = dt.isocalendar()
+    assert ic.year == 2020
+    assert ic.week == 19
+    assert ic.weekday == 1
+    assert repr(ic) == "IsoCalendarDate(year=2020, week=19, weekday=1)"
+
+
+def test_offset_with_seconds_in_isoformat() -> None:
+    """isoformat() renders a UTC offset with non-zero seconds/microseconds."""
+    tz = timezone(timedelta(hours=-6, seconds=5))
+    dt = FhirDateTime(2011, 9, 12, 12, 14, 31, tzinfo=tz)
+    assert dt.isoformat() == "2011-09-12T12:14:31-05:59:55"
+
+    tz_us = timezone(timedelta(hours=1, microseconds=250_000))
+    dt_us = FhirDateTime(2011, 9, 12, 12, 14, 31, tzinfo=tz_us)
+    assert dt_us.isoformat() == "2011-09-12T12:14:31+01:00:00.250000"
+
+
+def test_tzname() -> None:
+    """tzname() reflects the tzinfo attached to the instance."""
+    assert FhirDateTime(2020, 1, 1, 0, 0, tzinfo=UTC).tzname() == "UTC"
+    assert FhirDateTime(2020, 1, 1, 0, 0).tzname() is None
+
+
+def test_strftime_and_format() -> None:
+    """strftime() and format()/__format__() delegate correctly."""
+    dt = FhirDateTime(2020, 5, 4, 13, 42, 54, tzinfo=UTC)
+    assert dt.strftime("%Y-%m-%d %H:%M:%S %z") == "2020-05-04 13:42:54 +0000"
+    assert format(dt, "%Y/%m/%d") == "2020/05/04"
+    assert format(dt, "") == str(dt)
+    with pytest.raises(TypeError):
+        dt.__format__(5)  # type: ignore[arg-type]
+
+
+def test_ctime() -> None:
+    """ctime() produces the classic ctime()-style string."""
+    dt = FhirDateTime(2020, 5, 4, 13, 42, 54)
+    assert dt.ctime() == "Mon May  4 13:42:54 2020"
+
+
+def test_from_native() -> None:
+    """from_native() builds a FhirDateTime from a real date/datetime."""
+    d = date(2011, 9, 12)
+    dt_native = datetime(2011, 9, 12, 14, 53, 12, 123456, tzinfo=UTC)
+
+    from_d = FhirDateTime.from_native(d)
+    assert isinstance(from_d, FhirDateTime)
+    assert (from_d.year, from_d.month, from_d.day) == (2011, 9, 12)
+    assert from_d.hour is None
+
+    from_dt = FhirDateTime.from_native(dt_native)
+    assert isinstance(from_dt, FhirDateTime)
+    compare_native(from_dt, dt_native)
+
+
+def test_repr() -> None:
+    """__repr__ trims unset trailing fields and appends tzinfo/fold when set."""
+    assert repr(FhirDateTime(2020)) == "fhirdatetime.FhirDateTime(2020)"
+    assert repr(FhirDateTime(2020, 5, 4)) == "fhirdatetime.FhirDateTime(2020, 5, 4)"
+    assert repr(FhirDateTime(2020, 5, 4, 13, 42)) == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42)"
+    assert (
+        repr(FhirDateTime(2020, 5, 4, 13, 42, tzinfo=UTC))
+        == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, tzinfo=datetime.timezone.utc)"
+    )
+    assert repr(FhirDateTime(2020, 5, 4, 13, 42, fold=1)) == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, fold=1)"
+    assert (
+        repr(FhirDateTime(2020, 5, 4, 13, 42, tzinfo=UTC, fold=1))
+        == "fhirdatetime.FhirDateTime(2020, 5, 4, 13, 42, tzinfo=datetime.timezone.utc, fold=1)"
+    )
+
+
+def test_hash() -> None:
+    """__hash__ is consistent with __eq__ and usable in sets/dicts."""
+    a = FhirDateTime(2020)
+    b = FhirDateTime(2020, 9, 1)  # Equal to `a` under FhirDateTime's ambiguous-field ==
+    c = FhirDateTime(2021, 5, 4)
+
+    assert a == b
+    assert hash(a) == hash(b)
+    assert hash(a) == hash(2020)
+
+    s = {a}
+    assert b in s  # Equal objects must land in the same hash bucket
+    assert c not in s
+
+    d = {a: "first"}
+    d[b] = "second"
+    assert d == {a: "second"}  # b overwrote a's entry, since a == b
+
+
+def test_ne_incompatible_type() -> None:
+    """__ne__ defers via NotImplemented for non-date/datetime types."""
+    assert FhirDateTime(2021) != {2021}
+    assert FhirDateTime(2021) != 5
+    assert FhirDateTime(2021) != "2021"
+
+
+@pytest.mark.parametrize(
+    "op",
+    [
+        lambda a, b: a < b,
+        lambda a, b: a <= b,
+        lambda a, b: a > b,
+        lambda a, b: a >= b,
+    ],
+)
+def test_ordering_incompatible_type_raises(op: Callable[[object, object], bool]) -> None:
+    """Ordering comparisons against a non-date/datetime type raise TypeError."""
+    with pytest.raises(TypeError, match="Cannot compare FhirDateTime"):
+        op(FhirDateTime(2021), "not a date")
+
+
+def test_sort_key_bad_attr_path() -> None:
+    """sort_key()'s attr-path callable raises when the path leads elsewhere."""
+    key = FhirDateTime.sort_key("value")
+    with pytest.raises(TypeError, match="attr_path must lead to an instance of FhirDateTime"):
+        key(SimpleNamespace(value=42))

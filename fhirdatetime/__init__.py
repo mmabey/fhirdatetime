@@ -34,7 +34,7 @@ from __future__ import annotations
 import re
 from datetime import MAXYEAR, MINYEAR, UTC, date, datetime, tzinfo as tzinfo_
 from operator import itemgetter
-from typing import TYPE_CHECKING, Self, TypeAlias, overload
+from typing import TYPE_CHECKING, Self, SupportsIndex, TypeAlias, overload
 
 from ._datetime import (
     _check_int_field,
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 __all__ = ["FhirDateTime", "__version__"]
-__version__ = "0.1.0b8"
+__version__ = "0.2.0"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
@@ -340,6 +340,45 @@ class FhirDateTime(_DateTime, datetime):
         dt = FhirDateTime(1)  # Just an arbitrary year
         dt._replace_with(other)
         return dt
+
+    @classmethod
+    def fromtimestamp(cls, t: float, tz: tzinfo_ | None = None) -> FhirDateTime:
+        """Construct a FhirDateTime from a POSIX timestamp (like time.time()).
+
+        Delegates to the real :class:`datetime.datetime` implementation
+        rather than the vendored ``_DateTime._fromtimestamp`` fold-detection
+        logic: when `tz` is given, that logic calls ``tz.fromutc()``, a
+        method that reads `tzinfo` off the C-level `datetime` struct
+        directly rather than through this class's Python-level `tzinfo`
+        property. Since a `FhirDateTime`'s underlying struct fields are
+        always the `__new__` placeholder ``(1, 1, 1)`` with no tzinfo, that
+        read comes back `None` and `fromutc` raises `ValueError`.
+        """
+        return cls.from_native(datetime.fromtimestamp(t, tz))
+
+    @classmethod
+    def now(cls, tz: tzinfo_ | None = None) -> FhirDateTime:
+        """Construct a FhirDateTime for the current date and time.
+
+        See :meth:`fromtimestamp` for why this delegates to the real
+        :class:`datetime.datetime` instead of the vendored implementation.
+        """
+        return cls.from_native(datetime.now(tz))
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> tuple[type[Self], tuple[str]]:
+        """Support pickling and :func:`copy.deepcopy`.
+
+        The vendored ``_DateTime.__reduce_ex__`` produces a `bytes` state
+        blob shaped for `datetime.__setstate__`, which this class's
+        `__init__` doesn't understand (it only accepts `int`, `str`, or
+        `date`/`datetime` for `year`). Round-trip through `isoformat`
+        instead, since `fromisoformat` is already guaranteed to reconstruct
+        any value `isoformat` can produce. Note this loses `fold`, which
+        `isoformat` doesn't encode -- an acceptable tradeoff since FHIR data
+        has no concept of DST-transition ambiguity.
+        """
+        del protocol
+        return self.__class__, (self.isoformat(),)
 
     def _replace_with(self, other: ComparableTypes) -> None:
         if not isinstance(other, (FhirDateTime, date, datetime)):

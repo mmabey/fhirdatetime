@@ -1,6 +1,6 @@
 [project]
 name = "fhirdatetime"
-version = "0.1.0b8"
+version = "0.2.0"
 description = "A datetime-compatible class for FHIR date/datetime values."
 authors = [{ name = "Mike Mabey", email = "email@mikemabey.com" }]
 license = "MIT AND PSF-2.0"

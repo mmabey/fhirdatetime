@@ -4,8 +4,8 @@ Changelog
 All notable changes to this project are documented here. Versions follow
 the tags published to PyPI.
 
-Unreleased
-----------
+0.2.0 (2026-08-16)
+------------------
 
 - Migrated the build system from Poetry to ``uv``; bumped the minimum
   supported Python to 3.11.
@@ -26,6 +26,12 @@ Unreleased
 - Added PSF license attribution for ``fhirdatetime/_datetime.py``, which
   is adapted from CPython's ``Lib/datetime.py``; package license changed
   from ``MIT`` to the SPDX expression ``MIT AND PSF-2.0``.
+- Fixed pickling/``copy.deepcopy`` being broken for every ``FhirDateTime``
+  instance.
+- Fixed ``FhirDateTime.fromtimestamp()``/``now()`` raising ``ValueError``
+  whenever a timezone was passed.
+- Significantly expanded test coverage, closing `#2
+  <https://github.com/mmabey/fhirdatetime/issues/2>`_.
 
 0.1.0b8 (2021-04-27)
 --------------------
