@@ -3,6 +3,11 @@
 
 See http://www.iana.org/time-zones/repository/tz-link.html for
 time zone and DST data sources.
+
+Adapted from CPython's Lib/datetime.py. Copyright (c) 2001 Python
+Software Foundation; All Rights Reserved. Used and modified under the
+PSF License Agreement; see ../LICENSE.PSF.txt for the full license text
+and a summary of the changes made to this file.
 """
 
 import math as _math
@@ -901,7 +906,9 @@ class _DateTime:
         "string, format -> new datetime parsed from a string (like time.strptime())."
         import _strptime
 
-        return _strptime._strptime_datetime(cls, date_string, format)
+        # Python 3.14 renamed _strptime_datetime -> _strptime_datetime_datetime.
+        strptime_datetime = getattr(_strptime, "_strptime_datetime_datetime", None) or _strptime._strptime_datetime
+        return strptime_datetime(cls, date_string, format)
 
     def utcoffset(self):
         """Return the timezone offset as timedelta

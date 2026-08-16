@@ -8,14 +8,14 @@
 .. image:: https://img.shields.io/pypi/v/fhirdatetime.svg
    :target: https://pypi.python.org/pypi/fhirdatetime
 
-.. image:: https://travis-ci.com/mmabey/fhirdatetime.svg?branch=main
-   :target: https://travis-ci.com/mmabey/fhirdatetime
+.. image:: https://github.com/mmabey/fhirdatetime/actions/workflows/ci.yml/badge.svg?branch=main
+   :target: https://github.com/mmabey/fhirdatetime/actions/workflows/ci.yml
 
 .. image:: https://coveralls.io/repos/github/mmabey/fhirdatetime/badge.svg?branch=main
    :target: https://coveralls.io/github/mmabey/fhirdatetime?branch=main
 
-.. image:: https://img.shields.io/badge/code%20style-black-000000.svg
-   :target: https://github.com/psf/black
+.. image:: https://img.shields.io/badge/code%20style-ruff-000000.svg
+   :target: https://github.com/astral-sh/ruff
 
 
 A ``datetime``-compatible class for FHIR date/datetime values.

@@ -1,48 +1,127 @@
-[tool.isort]
-known_third_party = ["pytest", "sphinx_rtd_theme"]
-multi_line_output = 3
-profile = "black"
-combine_as_imports = true
-
-[tool.poetry]
+[project]
 name = "fhirdatetime"
-version = "0.1.0b8"
+version = "0.2.0"
 description = "A datetime-compatible class for FHIR date/datetime values."
-authors = ["Mike Mabey <mmabey@ieee.org>"]
-homepage = "https://github.com/mmabey/fhirdatetime"
-license = "MIT"
+authors = [{ name = "Mike Mabey", email = "email@mikemabey.com" }]
+license = "MIT AND PSF-2.0"
+license-files = ["LICENSE*.txt"]
 readme = "README.rst"
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+keywords = ["fhir", "datetime", "date", "healthcare", "hl7"]
+dependencies = []
 
-[tool.poetry.dependencies]
-python = "^3.6.1"
+[project.urls]
+Homepage = "https://github.com/mmabey/fhirdatetime"
+Repository = "https://github.com/mmabey/fhirdatetime"
+Issues = "https://github.com/mmabey/fhirdatetime/issues"
+Documentation = "https://fhirdatetime.readthedocs.io"
 
-[tool.poetry.dev-dependencies]
-pytest = "^5.2"
-pre-commit = "^2.12.0"
-Sphinx = "^3.5.4"
-sphinx-rtd-theme = "^0.5.2"
-tox = "^3.23.0"
-coveralls = "^3.0.1"
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pre-commit>=3.0",
+    "ruff>=0.6",
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=2.0",
+    "coveralls>=3.0.1",
+    "ty>=0.0.70",
+]
+
+[tool.ruff]
+line-length = 120
+extend-exclude = ["fhirdatetime/_datetime.py", "docs"]
+
+[tool.ruff.lint]
+extend-select = [
+    "A",
+    "ANN",
+    "ASYNC",
+    "B",
+    "BLE",
+    "C4",
+    "C90",
+    "COM",
+    "DTZ",
+    "E",
+    "EM",
+    "EXE",
+    "F",
+    "FLY",
+    "FURB",
+    "I",
+    "ICN",
+    "INP",
+    "ISC",
+    "N",
+    "PIE",
+    "PLC",
+    "PLE",
+    "PLR",
+    "PLW",
+    "PT",
+    "PTH",
+    "PYI",
+    "Q",
+    "RET",
+    "RSE",
+    "RUF",
+    "S",
+    "SIM",
+    "T100",
+    "TC",
+    "TID",
+    "TRY",
+    "UP",
+    "W",
+]
+# Rules ruff's own docs list as conflicting with the formatter:
+# https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+ignore = [
+    "COM812",
+    "COM819",
+    "E111",
+    "E114",
+    "E117",
+    "E101",
+    "ISC001",
+    "ISC002",
+    "Q000",
+    "Q001",
+    "Q002",
+    "Q003",
+    "W191",
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-third-party = ["pytest", "sphinx_rtd_theme"]
+
+[tool.ruff.lint.per-file-ignores]
+# S311: test data randomization, not cryptography.
+# DTZ: interop tests deliberately exercise naive-vs-aware datetime comparisons.
+# PLR2004: literal expected values in assertions are normal test style.
+"tests/**" = ["S101", "S311", "DTZ", "PLR2004"]
+
+[tool.ty.src]
+# Same rationale as [tool.ruff] extend-exclude: vendored, unannotated
+# CPython datetime internals aren't worth chasing type errors in.
+exclude = ["fhirdatetime/_datetime.py"]
+
+[tool.uv.build-backend]
+module-root = ""
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
-
-[tool.tox]
-legacy_tox_ini = """
-[tox]
-isolated_build = True
-envlist = py36,py37,py38,py39,py310
-skip_missing_interpreters = True
-
-[tox:.package]
-basepython = python3
-
-[testenv]
-passenv = TRAVIS TRAVIS_*
-deps =
-    pytest
-    coveralls
-commands =
-    coverage run --source fhirdatetime -m pytest
-"""
+requires = ["uv_build>=0.9,<0.13"]
+build-backend = "uv_build"
