@@ -18,7 +18,7 @@
    :target: https://github.com/astral-sh/ruff
 
 
-A ``datetime``-compatible class for FHIR date/datetime values.
+``date``/``datetime``-compatible classes for FHIR date/datetime values.
 
 The `FHIR specification <https://www.hl7.org/fhir/>`_ from HL7 is "a
 standard for health care data exchange." The FHIR spec includes
@@ -28,6 +28,13 @@ that provide more flexibility than the standard Python ``date`` and
 ``datetime`` types. This makes sense when you consider a patient may
 report to their provider that they have experience a particular symptom
 since a particular year without knowing the month or day of onset.
+
+This library provides two classes: ``FhirDate``, for FHIR's ``date`` type
+(year, year-month, or year-month-day precision), and ``FhirDateTime``, for
+FHIR's ``dateTime`` type (everything ``FhirDate`` supports, plus an
+optional time-of-day and timezone). ``FhirDateTime`` *is a* ``FhirDate``
+(it subclasses it), so anywhere a ``FhirDate`` is expected -- comparisons,
+sorting, type checks -- a ``FhirDateTime`` works too.
 
 
 Installation
@@ -44,19 +51,26 @@ Usage
 Creation
 ********
 
-The ``fhirdatetime.FhirDateTime`` class is designed to be used to store date/datetime values
-from FHIR payloads (which are JSON strings), you can create instances from ``str``
+Both classes are designed to be used to store date/datetime values from FHIR
+payloads (which are JSON strings), so you can create instances from ``str``
 values:
 
->>> FhirDateTime("2021-03-15")
-fhirdatetime.FhirDateTime(2021, 3, 15)
+>>> FhirDate("2021-03-15")
+fhirdatetime.FhirDate(2021, 3, 15)
+>>> FhirDateTime("2021-03-15T20:54:00+00:00")
+fhirdatetime.FhirDateTime(2021, 3, 15, 20, 54, tzinfo=datetime.timezone.utc)
 
 You can also convert native ``date`` and ``datetime`` objects directly:
 
->>> FhirDateTime(date(2021, 3, 15))
-fhirdatetime.FhirDateTime(2021, 3, 15)
->>> FhirDateTime(datetime(2021, 3, 15, 20, 54))
-fhirdatetime.FhirDateTime(2021, 3, 15, 20, 54)
+>>> FhirDate(date(2021, 3, 15))
+fhirdatetime.FhirDate(2021, 3, 15)
+>>> FhirDateTime(datetime(2021, 3, 15, 20, 54, tzinfo=timezone.utc))
+fhirdatetime.FhirDateTime(2021, 3, 15, 20, 54, tzinfo=datetime.timezone.utc)
+
+Note that ``FhirDateTime`` requires a timezone whenever a time is given, per
+the FHIR ``dateTime`` spec -- there's no such thing as an hour/minute with no
+offset in FHIR. Values with no time at all (like the ``FhirDate`` examples
+above, or a date-only ``FhirDateTime("2021-03-15")``) never need one.
 
 One purpose of this library is to allow flexibility in granularity without
 sacrificing the ability to compare (using <, >, ==, etc.) against objects
@@ -81,58 +95,33 @@ False
 >>> FhirDateTime(2021) > FhirDateTime(2021, 3, 15)
 False
 
+Since ``FhirDateTime`` *is a* ``FhirDate``, the two compare against each
+other the same way:
+
+>>> FhirDateTime(2021, 3, 15) == FhirDate(2021, 3, 15)
+True
+
 
 Sorting
 *******
 
-.. important:: When there is ambiguity due to one ``FhirDateTime`` object
-    storing less-granular data than another (e.g., ``FhirDateTime(2021)``
-    vs. ``FhirDateTime(2021, 4)``), objects with missing values will be
-    ordered *before* those with more granular values that would
-    otherwise be considered equivalent when using the ``==`` operator.
-
-When you need to sort a sequence of either ``FhirDateTime`` objects or
-object that *contain* a ``FhirDateTime`` object, the ``FhirDateTime.sort_key()``
-function will make it easier to sort the items properly.
-
-There are two ways to use this function. The first is intended for use
-when sorting a sequence of ``FhirDateTime`` objects, something like
-this (notice that ``sort_key()`` is called with no parameters):
+Both classes have a ``sort_key()`` class method for sorting a sequence of
+``FhirDate``/``FhirDateTime`` objects -- or objects that *contain* one --
+including handling the ambiguity that comes with mixed-granularity values:
 
 >>> sorted(
 ...     [FhirDateTime(2021, 4), FhirDateTime(2021), FhirDateTime(2021, 4, 12)],
 ...     key=FhirDateTime.sort_key()
 ... )
-[FhirDateTime(2021), FhirDateTime(2021, 4), FhirDateTime(2021, 4, 12)]
+[fhirdatetime.FhirDateTime(2021), fhirdatetime.FhirDateTime(2021, 4), fhirdatetime.FhirDateTime(2021, 4, 12)]
 
-The second is for use when sorting a sequence of objects that have
-``FhirDateTime`` objects as attributes. This example sorts the
-``CarePlan`` [#care_ref]_ objects by the care plan's period's start date:
-
->>> sorted(care_plan_list, key=FhirDateTime.sort_key("period.start"))
-
-In this example, ``sorted()`` passes each item in ``care_plan_list`` to
-the ``sort_key`` static method, which first gets the ``period``
-attribute of the item, then gets the ``start`` attribute of the period.
-Finally, the year, month, day, and other values are returned to
-``sorted()``, which does the appropriate sorting on those values.
-
-If neither of these use cases of the ``sort_key()`` function apply to what you
-need to do, you can always use a custom lambda to do your sorting. For example, the
-following is equivalent to the care plan sorting example:
-
->>> sorted(care_plan_list, key=lambda x: FhirDateTime.sort_key(x.period.start))
+See the `full Sorting guide
+<https://fhirdatetime.readthedocs.io/en/latest/sorting.html>`_ in the docs
+for sorting by an attribute path (e.g. sorting FHIR resources by
+``period.start``) and the exact ordering rules for ambiguous comparisons.
 
 
 License
 -------
 
 This project is licensed under the MIT license.
-
-
--------
-
-
-.. [#care_ref] Take a look at the ``fhir.resources`` `definition of a CarePlan
-   here <https://github.com/nazrulworld/fhir.resources/blob/master/fhir/resources/careplan.py>`_
-   to get a better idea of what is going on in the example.

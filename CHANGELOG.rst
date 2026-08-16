@@ -4,6 +4,40 @@ Changelog
 All notable changes to this project are documented here. Versions follow
 the tags published to PyPI.
 
+Unreleased
+----------
+
+- Added ``FhirDate``, for FHIR's ``date`` type. ``FhirDateTime`` now
+  subclasses it, sharing comparison/hashing/sorting logic instead of
+  duplicating it.
+- ``FhirDateTime`` now requires a timezone whenever a time is specified,
+  matching the FHIR ``dateTime`` grammar (there's no such thing as a
+  naive or offset-less time in FHIR). This applies to every construction
+  path, including ``now()``/``fromtimestamp()``/``from_native()``, and is
+  a breaking change for any code constructing a naive, time-bearing
+  ``FhirDateTime``. ``utcnow()``/``utcfromtimestamp()`` now attach UTC
+  automatically rather than raising, since they have no ``tz`` parameter
+  a caller could otherwise supply.
+- ``fromisoformat()`` now accepts a FHIR-legal leap second (``:60``) by
+  normalizing it to ``:59`` on parse; direct construction with
+  ``second=60`` still raises.
+- Fixed pickling/``copy``/``deepcopy`` being broken for every ``FhirDate``
+  instance.
+- Fixed ``real_date - fhir_date`` (and the ``FhirDateTime`` equivalent)
+  silently returning a wrong ``timedelta`` instead of raising or
+  computing correctly.
+- Fixed arithmetic (``+``/``-``) on a partial-precision ``FhirDate``/
+  ``FhirDateTime`` raising a confusing internal ``TypeError`` instead of
+  a clear one.
+- Fixed ``FhirDate.min``/``.max`` (and the ``FhirDateTime`` equivalents)
+  returning instances of the private vendored base type instead of the
+  public class.
+- Re-wired the Read the Docs integration (the previous GitHub webhook had
+  been silently failing since 2021); docs now build automatically again.
+- ``main`` now auto-tags and publishes a release on every push that bumps
+  the version in ``pyproject.toml``, instead of requiring a manually
+  pushed tag.
+
 0.2.0 (2026-08-16)
 ------------------
 

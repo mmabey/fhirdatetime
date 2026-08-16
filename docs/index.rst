@@ -5,5 +5,6 @@
    :hidden:
 
    Home <self>
+   sorting
    api
    changelog

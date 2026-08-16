@@ -1,4 +1,4 @@
-"""A datetime-compatible class for FHIR date/datetime values.
+"""``date``/``datetime``-compatible classes for FHIR date/datetime values.
 
 The `FHIR specification <https://www.hl7.org/fhir/>`_ from HL7 is "a
 standard for health care data exchange." The FHIR spec includes
@@ -9,7 +9,14 @@ that provide more flexibility than the standard Python :class:`date` and
 report to their provider that they have experience a particular symptom
 since a particular year without knowing the month or day of onset.
 
-The purpose of this class is to allow for this flexibility without
+:class:`FhirDate` represents FHIR's ``date`` type (year, year-month, or
+year-month-day precision), and :class:`FhirDateTime` represents FHIR's
+``dateTime`` type (everything :class:`FhirDate` supports, plus an optional
+time-of-day and timezone). :class:`FhirDateTime` *is a* :class:`FhirDate`
+(it subclasses it), so anywhere a :class:`FhirDate` is expected --
+comparisons, sorting, type checks -- a :class:`FhirDateTime` works too.
+
+The purpose of these classes is to allow for this flexibility without
 sacrificing the ability to compare (using <, >, ==, etc.) against objects
 of the same type as well as :class:`date` and :class:`datetime` objects.
 
@@ -364,7 +371,7 @@ class FhirDate(_Date, date):
         ...     [FhirDate(2021, 4), FhirDate(2021), FhirDate(2021, 4, 12)],
         ...     key=FhirDate.sort_key()
         ... )
-        [FhirDate(2021), FhirDate(2021, 4), FhirDate(2021, 4, 12)]
+        [fhirdatetime.FhirDate(2021), fhirdatetime.FhirDate(2021, 4), fhirdatetime.FhirDate(2021, 4, 12)]
 
         The second is for use when sorting a sequence of objects that have
         :class:`FhirDate` objects as attributes. This example sorts the
@@ -785,7 +792,7 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
         ...     [FhirDateTime(2021, 4), FhirDateTime(2021), FhirDateTime(2021, 4, 12)],
         ...     key=FhirDateTime.sort_key()
         ... )
-        [FhirDateTime(2021), FhirDateTime(2021, 4), FhirDateTime(2021, 4, 12)]
+        [fhirdatetime.FhirDateTime(2021), fhirdatetime.FhirDateTime(2021, 4), fhirdatetime.FhirDateTime(2021, 4, 12)]
 
         The second is for use when sorting a sequence of objects that have
         :class:`FhirDateTime` objects as attributes. This example sorts the
