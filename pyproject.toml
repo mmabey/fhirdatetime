@@ -1,6 +1,6 @@
 [project]
 name = "fhirdatetime"
-version = "1.0.0"
+version = "1.1.0"
 description = "date/datetime-compatible classes for FHIR date/datetime values."
 authors = [{ name = "Mike Mabey", email = "email@mikemabey.com" }]
 license = "MIT AND PSF-2.0"
@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
-keywords = ["fhir", "datetime", "date", "healthcare", "hl7"]
+keywords = ["fhir", "fhir-r4", "fhir-r5", "datetime", "date", "healthcare", "hl7"]
 dependencies = []
 
 [project.urls]

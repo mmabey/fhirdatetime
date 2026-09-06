@@ -16,3 +16,9 @@ API
    :members: fromisoformat, from_native, sort_key
    :member-order: bysource
    :show-inheritance:
+
+``NaiveTimeError``
+------------------
+
+.. autoexception:: fhirdatetime.NaiveTimeError
+   :show-inheritance:

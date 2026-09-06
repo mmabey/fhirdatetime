@@ -37,6 +37,33 @@ optional time-of-day and timezone). ``FhirDateTime`` *is a* ``FhirDate``
 sorting, type checks -- a ``FhirDateTime`` works too.
 
 
+FHIR version compatibility
+--------------------------
+
+The ``date`` and ``dateTime`` primitive definitions are equivalent across
+FHIR **R4**, **R5**, and the **R6 ballot** -- same fields, same precision
+model, same normative rules -- and this library targets all three.
+
+R5's published regex is looser than its own prose in two places (the prose
+governs, and the R6 ballot tightened the regex back), and ``fhirdatetime``
+follows the prose:
+
+* A ``dateTime`` with a time but no timezone offset
+  (``"2021-03-15T10:30:00"``) is rejected with ``NaiveTimeError`` -- FHIR
+  says "if hours and minutes are specified, a timezone offset SHALL be
+  populated." Catch ``NaiveTimeError`` (a ``ValueError`` subclass) to
+  single these out, or attach an offset before parsing.
+* A timezone offset on a value with no time (``"2021-03-15+05:00"``) is
+  rejected -- it is not representable, and effectively nothing produces
+  it.
+
+Fractional seconds beyond microsecond precision (R5/R6 allow up to
+nanoseconds) are truncated on parse, since Python's ``datetime`` stores
+only microseconds. FHIR ``instant`` values map onto ``FhirDateTime`` and
+round-trip fine, though ``instant``'s stricter rules (seconds and offset
+both mandatory) are not separately enforced.
+
+
 Installation
 ------------
 
