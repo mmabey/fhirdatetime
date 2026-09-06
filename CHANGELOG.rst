@@ -4,6 +4,31 @@ Changelog
 All notable changes to this project are documented here. Versions follow
 the tags published to PyPI.
 
+1.1.0 (2026-09-06)
+------------------
+
+- Documented and tested support for FHIR **R5** and the **R6 ballot**. The
+  ``date``/``dateTime`` primitive definitions are equivalent to R4 across
+  all three versions (same fields, precision model, and normative rules),
+  so no API changes were needed -- the existing classes already satisfy
+  every version's grammar.
+- ``fromisoformat()`` now accepts any number of fractional-second digits.
+  Previously only 3 or 6 digits parsed on the numeric-offset path (and at
+  most 6 on the ``Z`` path), so both nanosecond-precision values
+  (``...:00.123456789+00:00`` -- R5/R6 permit up to 9 digits) and shorter
+  ones (``...:00.5+00:00``) raised ``ValueError``. Digits beyond
+  microsecond precision are truncated toward zero, matching the standard
+  library.
+- Documented two FHIR-legal ``dateTime`` shapes this library rejects by
+  design: a time with no timezone offset, and a timezone offset on a
+  value with no time. Both follow FHIR's normative prose (R5's looser
+  published regex notwithstanding; the R6 ballot tightened it back).
+- Added ``NaiveTimeError`` (a ``ValueError`` subclass) for a time-of-day
+  supplied without the required timezone offset. It is raised on every
+  construction path, including ``fromisoformat()``, where the failure
+  previously surfaced as a generic ``"Invalid isoformat string"``. Code
+  that catches ``ValueError`` is unaffected.
+
 1.0.0 (2026-08-16)
 ------------------
 

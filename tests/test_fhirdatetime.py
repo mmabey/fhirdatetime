@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from fhirdatetime import FhirDateTime, __version__
+from fhirdatetime import FhirDateTime, NaiveTimeError, __version__
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -21,7 +21,7 @@ random.seed()
 
 def test_version() -> None:
     """Check library version is what it should be."""
-    ver = "1.0.0"
+    ver = "1.1.0"
     assert __version__ == ver
     with Path("pyproject.toml").open() as proj:
         for line in proj:
@@ -345,6 +345,82 @@ def test_leap_second_normalized_to_59_on_parse() -> None:
         FhirDateTime(2015, 6, 30, 23, 59, 60, tzinfo=UTC)
 
 
+@pytest.mark.parametrize(
+    ("iso", "expected_microsecond"),
+    [
+        # 1-6 fractional digits: unchanged, parsed as-is.
+        ("2021-03-15T10:30:00.5Z", 500_000),
+        ("2021-03-15T10:30:00.123Z", 123_000),
+        ("2021-03-15T10:30:00.123456Z", 123_456),
+        # 7-9 digits (FHIR R5/R6 allow up to nanoseconds): excess truncated,
+        # not rounded, matching stdlib's own behaviour.
+        ("2021-03-15T10:30:00.1234567Z", 123_456),
+        ("2021-03-15T10:30:00.123456789Z", 123_456),
+        ("2021-03-15T10:30:00.999999999Z", 999_999),
+        # Truncation also applies on the numeric-offset parse path.
+        ("2021-03-15T10:30:00.123456789+01:00", 123_456),
+    ],
+)
+def test_subsecond_precision_truncated_to_microseconds(iso: str, expected_microsecond: int) -> None:
+    """R5/R6 permit up to 9 fractional-second digits; Python stores 6, so parse truncates."""
+    parsed = FhirDateTime.fromisoformat(iso)
+    assert parsed.microsecond == expected_microsecond
+    assert parsed.tzinfo is not None
+
+
+@pytest.mark.parametrize(
+    "iso",
+    [
+        "2021-03-15T10:30:00.123456789Z",  # date-time with time and offset
+        "2021",  # bare year
+        "2021-03",  # year-month
+        "2021-03-15",  # year-month-day
+        "2021-03-15T10:30:00Z",  # full, second precision
+        "2021-03-15T10:30:00.5+00:00",  # fractional second, numeric offset
+        "2015-06-30T23:59:60Z",  # FHIR-legal leap second
+    ],
+)
+def test_fromisoformat_accepts_fhir_r5_r6_legal_values(iso: str) -> None:
+    """Everything FHIR R4, R5, and R6 permit that Python can represent round-trips through fromisoformat()."""
+    FhirDateTime.fromisoformat(iso)
+
+
+@pytest.mark.parametrize(
+    "iso",
+    [
+        "2021-03-15T10:30:00",  # full time, no offset
+        "2021-03-15T10:30:00.500",  # ditto, with fractional seconds
+        "2015-06-30T23:59:60",  # ditto, FHIR-legal leap second (normalized first)
+    ],
+)
+def test_fromisoformat_naive_time_raises_naive_time_error(iso: str) -> None:
+    """A well-formed date + time with no offset raises NaiveTimeError, naming the real problem.
+
+    FHIR's normative prose requires a timezone offset whenever a time is
+    present. R5's published regex is looser, but the prose governs (and the
+    R6 ballot tightened the regex back). The error is specific rather than
+    the generic "invalid isoformat string" it used to collapse into.
+    """
+    with pytest.raises(NaiveTimeError, match="requires a timezone"):
+        FhirDateTime.fromisoformat(iso)
+
+
+@pytest.mark.parametrize(
+    "iso",
+    [
+        "2021-03-15+05:00",  # offset on a value with no time -- not representable
+        "2021Z",  # offset on a bare year
+        "2021-13-45T10:30:00",  # malformed date (with a naive time riding along)
+        "2021-03-15T10:30",  # time without seconds -- not a valid FHIR dateTime
+    ],
+)
+def test_fromisoformat_rejects_other_bad_shapes_generically(iso: str) -> None:
+    """Values that aren't a clean naive dateTime still get the generic ValueError."""
+    with pytest.raises(ValueError, match=r"Invalid isoformat string|Unknown") as exc_info:
+        FhirDateTime.fromisoformat(iso)
+    assert not isinstance(exc_info.value, NaiveTimeError)
+
+
 def test_offset_with_seconds_in_isoformat() -> None:
     """isoformat() renders a UTC offset with non-zero seconds/microseconds."""
     tz = timezone(timedelta(hours=-6, seconds=5))
@@ -407,7 +483,7 @@ def test_tz_required_whenever_time_present() -> None:
     doesn't fix the other.
     """
     # Explicit fields, via _check_time_fields.
-    with pytest.raises(ValueError, match="requires a timezone"):
+    with pytest.raises(NaiveTimeError, match="requires a timezone"):
         FhirDateTime(2021, 3, 15, 23, 56)
 
     # Date-only construction is unaffected: no time means no tz requirement.
@@ -415,10 +491,13 @@ def test_tz_required_whenever_time_present() -> None:
 
     # Copying from an existing naive real datetime, via _replace_with.
     naive_native = datetime(2021, 3, 15, 23, 56)
-    with pytest.raises(ValueError, match="requires a timezone"):
+    with pytest.raises(NaiveTimeError, match="requires a timezone"):
         FhirDateTime(naive_native)
-    with pytest.raises(ValueError, match="requires a timezone"):
+    with pytest.raises(NaiveTimeError, match="requires a timezone"):
         FhirDateTime.from_native(naive_native)
+
+    # NaiveTimeError is a ValueError, so existing handlers still catch it.
+    assert issubclass(NaiveTimeError, ValueError)
 
     # Copying from a naive real date (no time at all) is unaffected.
     assert FhirDateTime(date(2021, 3, 15)).tzinfo is None

@@ -34,6 +34,32 @@ True
 False
 >>> FhirDateTime(2021) > FhirDateTime(2021, 3, 15)
 False
+
+FHIR version compatibility
+--------------------------
+
+The ``date`` and ``dateTime`` primitive definitions are equivalent across
+FHIR R4, R5, and the R6 ballot -- same fields, same precision model, same
+normative rules -- so these classes target all three. R5's published
+regex is looser than its own prose in two spots (the prose still governs,
+and R6 tightened the regex back), and this library follows the prose:
+
+* A ``dateTime`` with a time but no timezone offset
+  (``"2021-03-15T10:30:00"``) is rejected with :class:`NaiveTimeError`.
+  FHIR's normative text is unambiguous: "If hours and minutes are
+  specified, a timezone offset SHALL be populated." If you are consuming
+  such values from a non-conformant producer, catch
+  :class:`NaiveTimeError` (a :class:`ValueError` subclass) or attach an
+  offset before parsing.
+* A timezone offset on a value with no time (``"2021-03-15+05:00"``,
+  ``"2021Z"``) is rejected -- it is not representable (Python's ``date``
+  has no timezone either), and near-nothing produces it.
+
+Sub-second precision beyond microseconds (R5/R6 permit up to nanoseconds)
+is truncated on parse, since Python's ``datetime`` stores only
+microseconds. FHIR ``instant`` values map onto :class:`FhirDateTime` and
+round-trip fine, though ``instant``'s stricter rules (seconds and offset
+both mandatory) are not separately enforced.
 """
 
 from __future__ import annotations
@@ -56,8 +82,27 @@ from ._datetime import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["FhirDate", "FhirDateTime", "__version__"]
-__version__ = "1.0.0"
+__all__ = ["FhirDate", "FhirDateTime", "NaiveTimeError", "__version__"]
+__version__ = "1.1.0"
+
+
+class NaiveTimeError(ValueError):
+    """A time-of-day was supplied without the timezone offset FHIR requires.
+
+    FHIR's ``dateTime`` grammar requires a timezone offset the moment any
+    time component is present -- there is no naive or offset-less time in
+    FHIR. This is raised by every construction path (explicit fields,
+    :meth:`FhirDateTime.fromisoformat`, ``now()``, ``fromtimestamp()``,
+    ``from_native()``, and copying from a naive :class:`datetime`).
+
+    It subclasses :class:`ValueError`, so code that already catches
+    ``ValueError`` keeps working; catch ``NaiveTimeError`` specifically to
+    single out non-conformant time values in a stream of FHIR data.
+    """
+
+
+# Shared message so the "requires a timezone" phrasing stays in one place.
+_TZ_REQUIRED_MSG = "FHIR dateTime requires a timezone whenever a time is specified"
 
 DATE_FIELDS = ("year", "month", "day")
 TIME_FIELDS = ("hour", "minute", "second", "microsecond")
@@ -68,6 +113,33 @@ _ymd_pat = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 # portion only (the `T\d{2}:\d{2}:` anchor requires it to follow the
 # hour:minute of a time component, not just any ":60" substring).
 _leap_second_pat = re.compile(r"(T\d{2}:\d{2}:)60(\.\d+)?")
+# Matches the fractional-seconds group of a time portion. FHIR R4/R5/R6
+# all allow any number of fractional digits (R5/R6 cap it at 9), but the
+# vendored ISO parser only accepts exactly 3 or 6 and the strptime
+# fallback only 1-6, so fromisoformat() rewrites the group to exactly 6:
+# shorter values are right-padded with zeros, longer ones are truncated
+# (matching stdlib's own truncate-toward-zero behaviour, since Python's
+# datetime stores only microseconds).
+_subsecond_pat = re.compile(r"(T\d{2}:\d{2}:\d{2})\.(\d+)")
+# A well-formed date + full time-of-day with no trailing timezone offset --
+# i.e. a value that would be a valid FHIR dateTime except that FHIR
+# requires an offset whenever a time is present. fromisoformat() uses this
+# to raise a NaiveTimeError that names the real problem, rather than the
+# generic "invalid isoformat string". Kept strict (real month/day ranges,
+# mandatory seconds) so a genuinely malformed value still gets the generic
+# error. Runs after leap-second/sub-second normalization, so ":60" and
+# >6-digit fractions never reach it.
+_naive_datetime_pat = re.compile(
+    r"\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])"
+    r"T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?",
+)
+
+
+def _normalize_subsecond(match: re.Match[str]) -> str:
+    """Rewrite a time portion's fractional seconds to exactly 6 digits."""
+    return f"{match[1]}.{match[2][:6]:0<6}"
+
+
 _y_format = "{_year:04d}"
 _ym_format = _y_format + "-{_month:02d}"
 _ymd_format = _ym_format + "-{_day:02d}"
@@ -181,8 +253,7 @@ def _check_time_fields(  # noqa: C901, PLR0912, PLR0913, PLR0917
         # time component is present at all -- there's no such thing as a
         # naive or offset-less time in FHIR (unlike this class's own
         # partial-precision cascade for year/month/day).
-        msg = "FHIR dateTime requires a timezone whenever a time is specified"
-        raise ValueError(msg)
+        raise NaiveTimeError(_TZ_REQUIRED_MSG)
 
     # Second checks
     second = _check_int_field(second)
@@ -584,7 +655,17 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
 
     @classmethod
     def fromisoformat(cls, date_string: str) -> FhirDateTime:
-        """Construct a FhirDateTime from the output of FhirDateTime.isoformat()."""
+        """Construct a FhirDateTime from the output of FhirDateTime.isoformat().
+
+        Accepts every ``dateTime`` value FHIR R4, R5, and R6 permit that is
+        representable as a Python ``datetime``. A FHIR-legal leap second
+        (``:60``) is normalized to ``:59``, and fractional seconds beyond
+        microsecond precision (R5/R6 allow up to nanoseconds) are
+        truncated. Two FHIR-legal shapes are *not* accepted, by design
+        (see the module docs): a time with no timezone offset, which
+        raises :class:`NaiveTimeError`, and a timezone offset on a date
+        with no time, which raises a plain :class:`ValueError`.
+        """
         # FHIR's dateTime grammar explicitly allows a leap second (:60), but
         # this library never produces one (isoformat()/construction still
         # cap at :59) -- per FHIR's own guidance ("applications reading
@@ -593,6 +674,11 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
         # seconds"), normalize it to :59 on parse rather than rejecting or
         # attempting to store/round-trip it distinctly.
         date_string = _leap_second_pat.sub(r"\g<1>59\2", date_string)
+
+        # Normalize fractional seconds to exactly 6 digits so both parse
+        # paths below accept them -- see _subsecond_pat. R5/R6 allow up to
+        # 9 digits; anything past microsecond precision is truncated.
+        date_string = _subsecond_pat.sub(_normalize_subsecond, date_string)
 
         # Check for shorter formats first. Handled one pattern at a time
         # (rather than looping and unpacking `*groups`) so each call site
@@ -606,6 +692,15 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
         m = re.match(_ymd_pat, date_string)
         if m:
             return FhirDateTime(int(m[1]), int(m[2]), int(m[3]))
+
+        # A well-formed date + time with no offset is the most common
+        # non-conformant shape (some producers lean on R5's looser regex).
+        # Flag it here so the error names the real problem instead of the
+        # generic "invalid isoformat string" raised below -- and before
+        # delegating, since the parser below would misread a stray offset
+        # on a date with no time (e.g. "2021-03-15+05:00") as a naive time.
+        if _naive_datetime_pat.fullmatch(date_string):
+            raise NaiveTimeError(_TZ_REQUIRED_MSG)
 
         try:
             # FhirDate is next in the MRO and its own fromisoformat only
@@ -739,8 +834,7 @@ class FhirDateTime(FhirDate, _DateTime, datetime):
             # rather than `_check_time_fields` -- e.g. `FhirDateTime.now()`
             # with no `tz` argument would otherwise silently produce a
             # non-compliant naive-with-time instance.
-            msg = "FHIR dateTime requires a timezone whenever a time is specified"
-            raise ValueError(msg)
+            raise NaiveTimeError(_TZ_REQUIRED_MSG)
 
     def _require_full_precision(self) -> None:
         """Extend :meth:`FhirDate._require_full_precision` to also require hour/minute.
